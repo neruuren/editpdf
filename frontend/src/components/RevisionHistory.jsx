@@ -23,6 +23,7 @@ function describeOrigin(revision) {
 			: `restauration de la révision ${revision.restoredFrom}`;
 	}
 	if (revision.origin === 'upload') return 'version envoyée';
+	if (revision.origin === 'annotate') return 'annotations';
 	return revision.origin;
 }
 

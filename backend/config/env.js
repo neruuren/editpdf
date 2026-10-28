@@ -21,6 +21,16 @@ function _positive(name, fallback) {
 	return value;
 }
 
+// Nom d'auteur des annotations : AUTH_USERNAME par défaut. Nettoyé des
+// caractères de contrôle et borné : il est écrit dans chaque PDF annoté.
+function _annotationAuthor() {
+	const value = (process.env.ANNOTATION_AUTHOR || process.env.AUTH_USERNAME)
+		.replace(/[\p{Cc}\p{Cf}]/gu, '')
+		.trim()
+		.slice(0, 100);
+	return value || process.env.AUTH_USERNAME.slice(0, 100);
+}
+
 function loadEnv() {
 	const missing = REQUIRED.filter((name) => !process.env[name]);
 	if (missing.length > 0) {
@@ -54,6 +64,8 @@ function loadEnv() {
 		// le PDF est refusé (piégé, ou trop lourd pour la visionneuse).
 		pdfMaxPages: _positive('PDF_MAX_PAGES', 10_000),
 		authUsername: process.env.AUTH_USERNAME,
+		// Nom d'auteur posé sur les annotations (affiché par tout lecteur PDF).
+		annotationAuthor: _annotationAuthor(),
 		authPasswordHash: process.env.AUTH_PASSWORD_HASH,
 		jwtSecret: process.env.JWT_SECRET,
 		jwtExpire: process.env.JWT_EXPIRE || '30d',

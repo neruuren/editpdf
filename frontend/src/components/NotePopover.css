@@ -1,0 +1,49 @@
+.note-popover {
+	inline-size: min(22rem, calc(100vw - 1rem));
+	margin: 0;
+	padding: var(--space-3);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+	color: var(--color-text);
+	background: var(--color-surface);
+	box-shadow: var(--shadow);
+}
+
+/* Placée près de l'annotation ; sans ancre, centrée (défaut du popover). */
+.note-popover[data-placed] {
+	position: fixed;
+	inset: auto;
+}
+
+.note-popover:popover-open {
+	display: grid;
+	gap: var(--space-2);
+}
+
+.note-popover__title {
+	margin: 0;
+	font-weight: 600;
+}
+
+.note-popover__date {
+	margin: 0;
+	color: var(--color-text-muted);
+	font-size: 0.875rem;
+}
+
+.note-popover__text {
+	margin: 0;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	max-block-size: 50vh;
+	overflow: auto;
+}
+
+textarea.note-popover__text {
+	resize: vertical;
+}
+
+.note-popover__actions {
+	display: flex;
+	justify-content: flex-end;
+}

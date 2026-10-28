@@ -1,4 +1,5 @@
 const asyncHandler = require('../middleware/async');
+const env = require('../config/env');
 const ErrorResponse = require('../utils/errorResponse');
 const authService = require('../services/authService');
 
@@ -15,7 +16,10 @@ exports.login = asyncHandler(async (req, res, next) => {
 
 	const token = authService.signToken();
 	res.cookie(authService.COOKIE_NAME, token, authService.cookieOptions(token));
-	res.status(200).json({ success: true, data: { username } });
+	res.status(200).json({
+		success: true,
+		data: { username, annotationAuthor: env.annotationAuthor },
+	});
 });
 
 // @desc    Se déconnecter (efface le cookie et invalide toutes les sessions)
@@ -32,8 +36,12 @@ exports.logout = (req, res) => {
 };
 
 // @desc    Utilisateur connecté (permet au frontend de savoir s'il a une session)
+//          et nom d'auteur de ses annotations
 // @route   GET /api/auth/me
 // @access  Private
 exports.getMe = (req, res) => {
-	res.status(200).json({ success: true, data: req.user });
+	res.status(200).json({
+		success: true,
+		data: { ...req.user, annotationAuthor: env.annotationAuthor },
+	});
 };

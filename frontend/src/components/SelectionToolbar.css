@@ -1,0 +1,53 @@
+.selection-toolbar {
+	position: fixed;
+	z-index: 20;
+	/* Sans position calculée (rectangle de la sélection inconnu) : en bas,
+	   au centre. */
+	inset-block-end: 1rem;
+	inset-inline: 0;
+	inline-size: fit-content;
+	margin-inline: auto;
+	display: grid;
+	justify-items: center;
+	max-inline-size: calc(100vw - 1rem);
+	padding: var(--space-1);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+	color: var(--color-text);
+	background: var(--color-surface);
+	box-shadow: var(--shadow);
+}
+
+.selection-toolbar[data-placed] {
+	inset-block-end: auto;
+	inset-inline-end: auto;
+	margin-inline: 0;
+}
+
+.selection-toolbar__actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+}
+
+.selection-toolbar__button {
+	padding-inline: var(--space-2);
+	font-weight: 400;
+}
+
+/* Chaque style se montre tel qu'il sera posé, dans la couleur choisie. */
+.selection-toolbar__button[data-style='Highlight'] {
+	background: color-mix(in srgb, var(--markup-color) 40%, transparent);
+}
+
+.selection-toolbar__button[data-style='Underline'] {
+	text-decoration: underline 2px var(--markup-color);
+}
+
+.selection-toolbar__button[data-style='StrikeOut'] {
+	text-decoration: line-through 2px var(--markup-color);
+}
+
+.selection-toolbar__button[data-style='Squiggly'] {
+	text-decoration: underline wavy 1.5px var(--markup-color);
+}

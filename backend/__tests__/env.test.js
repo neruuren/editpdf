@@ -57,3 +57,26 @@ describe('config/env : PDF_MAX_PAGES', () => {
 		);
 	});
 });
+
+describe('config/env : ANNOTATION_AUTHOR', () => {
+	it('vaut AUTH_USERNAME quand elle est absente ou vide', () => {
+		expect(loadEnvWith({ ANNOTATION_AUTHOR: undefined }).annotationAuthor).toBe(
+			process.env.AUTH_USERNAME,
+		);
+		expect(loadEnvWith({ ANNOTATION_AUTHOR: '' }).annotationAuthor).toBe(
+			process.env.AUTH_USERNAME,
+		);
+	});
+
+	it('garde le nom donné, sans caractères de contrôle et borné à 100', () => {
+		expect(
+			loadEnvWith({ ANNOTATION_AUTHOR: ' Grégory\u0007‮ ' }).annotationAuthor,
+		).toBe('Grégory');
+		expect(
+			loadEnvWith({ ANNOTATION_AUTHOR: 'x'.repeat(150) }).annotationAuthor,
+		).toHaveLength(100);
+		expect(loadEnvWith({ ANNOTATION_AUTHOR: '\u0007' }).annotationAuthor).toBe(
+			process.env.AUTH_USERNAME,
+		);
+	});
+});

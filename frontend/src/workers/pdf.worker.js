@@ -9,6 +9,17 @@ import {
 	textLayerLines,
 	unlockDocument,
 } from './pdfRenderer';
+import {
+	createAnnotation,
+	deleteAnnotation,
+	enableHistory,
+	removeMarkup,
+	historyState,
+	listAnnotations,
+	saveDocument,
+	stepHistory,
+	updateAnnotation,
+} from './pdfAnnotations';
 
 // 🔹 Worker du moteur PDF : MuPDF (WASM, ~10 Mo) n'est chargé que dans ce
 // thread, à la première ouverture d'un document. Seul utils/pdfEngine.js
@@ -19,6 +30,8 @@ import {
 // une file traitée une tâche par tour de boucle : un message « cancel »
 // reçu entre deux tâches retire celles qui ne servent plus (page sortie de
 // l'écran pendant un défilement rapide, recherche remplacée par une autre).
+// Le reste (ouvrir, modifier les annotations, annuler, enregistrer…) passe
+// avant, dans l'ordre d'arrivée.
 
 // ⚠️ mupdf est chargé par import() et non par un import statique : son
 // top-level await retarderait la pose de self.onmessage, et les messages
@@ -43,6 +56,7 @@ function loadMupdf() {
 const TEXT_CACHE_CHARS = 1_000_000;
 const documents = new Map();
 let nextDocumentId = 1;
+const urgent = [];
 const queue = [];
 let isProcessing = false;
 
@@ -93,12 +107,74 @@ const handlers = {
 	async open({ data }) {
 		const mupdf = await loadMupdf();
 		const { document, info } = openDocument(mupdf, data);
+		if (!info.needsPassword) enableHistory(document);
 		const documentId = nextDocumentId++;
 		documents.set(documentId, { document, texts: new Map(), textChars: 0 });
 		return { result: { documentId, ...info } };
 	},
 	unlock({ documentId, password }) {
-		return { result: unlockDocument(getDocument(documentId), password) };
+		const document = getDocument(documentId);
+		const info = unlockDocument(document, password);
+		if (info) enableHistory(document);
+		return { result: info };
+	},
+	annotations({ documentId, index }) {
+		const document = getDocument(documentId);
+		return {
+			result: listAnnotations(document, index, () =>
+				getPageText(documentId, index),
+			),
+		};
+	},
+	// Liste des annotations du document, quelques pages par message.
+	annotationPages({ documentId, from, count }) {
+		const document = getDocument(documentId);
+		const end = Math.min(from + Math.min(count, 100), document.countPages());
+		const result = [];
+		for (let index = from; index < end; index++) {
+			const annotations = listAnnotations(document, index, () =>
+				getPageText(documentId, index),
+			);
+			if (annotations.length > 0) result.push({ index, annotations });
+		}
+		return { result };
+	},
+	createAnnotation({ documentId, index, spec, author }) {
+		const document = getDocument(documentId);
+		const id = createAnnotation(document, index, spec, {
+			author,
+			pageText: getPageText(documentId, index),
+		});
+		return { result: { id, page: index, ...historyState(document) } };
+	},
+	updateAnnotation({ documentId, index, annotationId, changes }) {
+		const document = getDocument(documentId);
+		updateAnnotation(document, index, annotationId, changes);
+		return { result: { page: index, ...historyState(document) } };
+	},
+	deleteAnnotation({ documentId, index, annotationId }) {
+		const document = getDocument(documentId);
+		deleteAnnotation(document, index, annotationId);
+		return { result: { page: index, ...historyState(document) } };
+	},
+	removeMarkup({ documentId, index, from, to }) {
+		const document = getDocument(documentId);
+		const count = removeMarkup(
+			document,
+			index,
+			{ from, to },
+			{ pageText: getPageText(documentId, index) },
+		);
+		return { result: { count, page: index, ...historyState(document) } };
+	},
+	history({ documentId, direction }) {
+		const document = getDocument(documentId);
+		const page = stepHistory(document, direction < 0 ? -1 : 1);
+		return { result: { page, ...historyState(document) } };
+	},
+	save({ documentId }) {
+		const data = saveDocument(getDocument(documentId));
+		return { result: data, transfer: [data.buffer] };
 	},
 	text({ documentId, index }) {
 		return { result: textLayerLines(getPageText(documentId, index)) };
@@ -150,13 +226,20 @@ const handlers = {
 	},
 };
 
-const QUEUED_TYPES = new Set(['render', 'text', 'search', 'renderJpeg']);
+const QUEUED_TYPES = new Set([
+	'render',
+	'text',
+	'search',
+	'renderJpeg',
+	'annotations',
+	'annotationPages',
+]);
 
 async function processQueue() {
 	if (isProcessing) return;
 	isProcessing = true;
-	while (queue.length > 0) {
-		const { id, type, ...params } = queue.shift();
+	while (urgent.length > 0 || queue.length > 0) {
+		const { id, type, ...params } = urgent.shift() ?? queue.shift();
 		try {
 			const { result, transfer } = await handlers[type](params);
 			reply(id, result, transfer);
@@ -183,9 +266,7 @@ self.onmessage = ({ data: message }) => {
 		replyError(message.id, new Error(`Commande inconnue : ${message.type}`));
 		return;
 	}
-	// Ouvrir, déverrouiller et fermer passent avant les rendus, textes et
-	// recherches en attente.
 	if (QUEUED_TYPES.has(message.type)) queue.push(message);
-	else queue.unshift(message);
+	else urgent.push(message);
 	processQueue();
 };

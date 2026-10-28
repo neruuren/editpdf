@@ -9,7 +9,12 @@ import { openPdf } from '../utils/pdfEngine';
 
 const INITIAL_STATE = { status: 'downloading', progress: null };
 
-// 🔹 Ouvre la révision courante d'un document dans le moteur PDF :
+function _closeAll(pdfs) {
+	for (const pdf of pdfs) pdf.close().catch(() => {});
+	pdfs.clear();
+}
+
+// 🔹 Ouvre la révision `revision` du document `id` dans le moteur PDF :
 // téléchargement (ou cache de session), puis ouverture dans le worker.
 // Renvoie { status, … } :
 // - 'downloading' (progress de 0 à 1, ou null si la taille est inconnue),
@@ -17,26 +22,44 @@ const INITIAL_STATE = { status: 'downloading', progress: null };
 // - 'password' : PDF protégé, en attente du mot de passe ; `unlock(mot de
 //   passe)` l'essaie (→ 'ready' s'il est bon, sinon `isWrongPassword`) ; un
 //   mot de passe déjà saisi dans la session est essayé tout seul ;
-// - 'ready' (pdf) ou 'error' (error).
-// Une nouvelle révision courante (nouvelle version, restauration) rouvre
-// le nouveau fichier ; l'ancien document est fermé.
-export function usePdfDocument(document) {
-	const { id, currentRevision } = document;
-	const key = `${id}:${currentRevision}`;
+// - 'ready' (pdf, revision : celle qui est ouverte) ou 'error' (error).
+// Une autre révision du même document (nouvelle version, restauration,
+// annotations enregistrées) est ouverte sans quitter l'ancienne : elle
+// reste affichée (`isReloading`) jusqu'à ce que la nouvelle soit prête,
+// puis elle est fermée.
+export function usePdfDocument(id, revision) {
+	const key = `${id}:${revision}`;
 	// L'état porte la clé du fichier qu'il décrit : dès que la clé change,
-	// l'ancien état (et son pdf, fermé) n'est plus jamais rendu.
+	// l'ancien état n'est plus rendu, sauf l'ancien PDF prêt du même document.
 	const [state, setState] = useState(() => ({ key, ...INITIAL_STATE }));
+	// Dernier PDF prêt : { key, id, revision, pdf }.
+	const [shown, setShownState] = useState(null);
+	const shownRef = useRef(null);
 	// Document verrouillé en attente du mot de passe.
 	const lockedRef = useRef(null);
+	// PDF encore affichés le temps d'ouvrir la révision suivante.
+	const retiringRef = useRef(new Set());
+
+	const setShown = useCallback((value) => {
+		shownRef.current = value;
+		setShownState(value);
+	}, []);
 
 	useEffect(() => {
 		let cancelled = false;
 		let opened = null;
+		const retiring = retiringRef.current;
 		const update = (next) => {
-			if (!cancelled) setState({ key, ...next });
+			if (cancelled) return;
+			setState({ key, ...next });
+			if (next.status === 'ready') {
+				setShown({ key, id, revision, pdf: next.pdf });
+			} else if (next.status !== 'downloading' && next.status !== 'opening') {
+				setShown(null);
+			}
 		};
 		async function open() {
-			const data = await getDocumentFile(id, currentRevision, {
+			const data = await getDocumentFile(id, revision, {
 				onProgress: (progress) => update({ status: 'downloading', progress }),
 			});
 			if (cancelled) return;
@@ -47,17 +70,17 @@ export function usePdfDocument(document) {
 				return;
 			}
 			if (!opened.needsPassword) {
-				update({ status: 'ready', pdf: opened });
+				update({ status: 'ready', pdf: opened, revision });
 				return;
 			}
-			const saved = getDocumentPassword(id, currentRevision);
+			const saved = getDocumentPassword(id, revision);
 			const unlocked = saved ? await opened.unlock(saved) : null;
 			if (cancelled) return;
 			if (unlocked) {
-				update({ status: 'ready', pdf: unlocked });
+				update({ status: 'ready', pdf: unlocked, revision });
 				return;
 			}
-			if (saved) forgetDocumentPassword(id, currentRevision);
+			if (saved) forgetDocumentPassword(id, revision);
 			lockedRef.current = { key, pdf: opened };
 			update({ status: 'password', isWrongPassword: false });
 		}
@@ -65,9 +88,39 @@ export function usePdfDocument(document) {
 		return () => {
 			cancelled = true;
 			lockedRef.current = null;
-			opened?.close().catch(() => {});
+			// Affiché : fermé seulement quand le suivant le remplace.
+			if (shownRef.current?.key === key) {
+				retiring.add(shownRef.current.pdf);
+			} else {
+				opened?.close().catch(() => {});
+			}
 		};
-	}, [key, id, currentRevision]);
+	}, [key, id, revision, setShown]);
+
+	// La nouvelle révision a pris la place (ou a échoué) : les anciens PDF
+	// ne sont plus affichés.
+	const isSettled =
+		state.key === key &&
+		state.status !== 'downloading' &&
+		state.status !== 'opening';
+	useEffect(() => {
+		if (isSettled) {
+			const current = state.status === 'ready' ? state.pdf : null;
+			for (const pdf of retiringRef.current) {
+				if (pdf !== current) {
+					pdf.close().catch(() => {});
+					retiringRef.current.delete(pdf);
+				}
+			}
+		}
+	}, [isSettled, state]);
+
+	// Après la fermeture de l'effet d'ouverture (même ordre que la
+	// déclaration) : le PDF affiché vient d'y être mis de côté.
+	useEffect(() => {
+		const retiring = retiringRef.current;
+		return () => _closeAll(retiring);
+	}, []);
 
 	const unlock = useCallback(
 		async (password) => {
@@ -77,15 +130,27 @@ export function usePdfDocument(document) {
 			if (lockedRef.current !== locked) return;
 			if (unlocked) {
 				lockedRef.current = null;
-				rememberDocumentPassword(id, currentRevision, password);
-				setState({ key, status: 'ready', pdf: unlocked });
+				rememberDocumentPassword(id, revision, password);
+				setState({ key, status: 'ready', pdf: unlocked, revision });
+				setShown({ key, id, revision, pdf: unlocked });
 			} else {
 				setState({ key, status: 'password', isWrongPassword: true });
 			}
 		},
-		[key, id, currentRevision],
+		[key, id, revision, setShown],
 	);
 
-	if (state.key !== key) return INITIAL_STATE;
+	if (state.key !== key || !isSettled) {
+		// Une autre révision du même document s'ouvre : l'ancienne reste.
+		if (shown?.id === id && shown.revision !== revision) {
+			return {
+				status: 'ready',
+				pdf: shown.pdf,
+				revision: shown.revision,
+				isReloading: true,
+			};
+		}
+		return state.key === key ? state : INITIAL_STATE;
+	}
 	return state.status === 'password' ? { ...state, unlock } : state;
 }

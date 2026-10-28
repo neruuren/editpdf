@@ -16,6 +16,7 @@
 - Rétention : on garde les `REVISIONS_KEEP` (20 par défaut, au moins 1) révisions les plus récentes en plus de l'original ; les plus anciennes sont supprimées automatiquement après chaque nouvelle révision. Une ancienne révision peut aussi être **supprimée à la main** (jamais l'original ni la courante).
 - Les numéros ne sont **jamais réutilisés** : la courante est toujours la plus récente et ne peut pas être supprimée.
 - **Nouvelle version** (T1b) : avant l'éditeur (T3), on peut envoyer un PDF modifié ailleurs (signé, annoté dans une autre application) ; il devient la révision suivante (origine `upload`). Une version **identique** (même sha256) à une révision existante est refusée (409) : on la restaure plutôt. Restaurer une révision identique à la courante est refusé aussi.
+- **Annotations** (T3a) : un enregistrement de la visionneuse est une révision d'origine `annotate`, écrite en incrémental, et refusée (409) si la révision courante a changé depuis son ouverture (`baseRevision`, [ADR 0010](0010-annotations.md)).
 - Une nouvelle révision courante remet à jour ce qui se lit dans le PDF (nombre de pages, chiffrement, miniature, texte indexé) ; titre, auteur et sujet, propres à la base, ne changent pas. `restored_from` garde le numéro de la révision restaurée.
 - Les écritures de révisions sont sérialisées dans le processus (`revisionService`) : deux envois simultanés ne peuvent pas prendre le même numéro.
 - Le texte extrait pour la recherche est celui de la révision courante.

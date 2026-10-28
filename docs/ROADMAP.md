@@ -62,14 +62,25 @@ Livrée en deux temps : **T2a** (lire : moteur, rendu, zoom, navigation, reprise
 
 ## T3 : annotations
 
-- [ ] Surlignage, souligné, barré, ondulé sur une sélection de texte (N)
-- [ ] Note (icône + texte), texte libre (zone de texte posée sur la page) (N)
+Livrée en deux temps : **T3a** (marquer le texte, notes et texte libre, enregistrer) puis **T3b** (dessin, formes, tampons, aplatir). Choix : [ADR 0010](adr/0010-annotations.md).
+
+### T3a
+
+- [x] Surlignage, souligné, barré, ondulé sur une sélection de texte (barre flottante sur la sélection, ou outil Surligner) ; « Retirer » enlève ces effets du seul texte sélectionné (N)
+- [x] Note (icône + texte dans une bulle), texte libre (zone de texte posée sur la page, taille et couleur) (N)
+- [x] Couleurs : 6 prêtes + une libre, mémorisées par outil sur l'appareil
+- [x] Sélection, déplacement (note, texte libre), redimensionnement (texte libre), couleur, suppression, annuler / rétablir jusqu'au dernier enregistrement (N)
+- [x] Annotations venues d'ailleurs : modifiables si leur type est connu, jamais si elles sont verrouillées
+- [x] Liste des annotations du document (onglet du panneau), navigation vers chacune
+- [x] Enregistrement (bouton, Ctrl + S) : PDF modifié en incrémental, envoyé au serveur → nouvelle révision `annotate` (N → S) ; conflit si le document a changé ; PDF protégé gardé protégé ; sortie sans enregistrer confirmée
+- [x] Auteur des annotations réglable (`ANNOTATION_AUTHOR`, défaut `AUTH_USERNAME`)
+
+### T3b
+
 - [ ] Dessin à main levée (encre, Pointer Events, stylet), gomme (N)
 - [ ] Formes : rectangle, ellipse, ligne, flèche, polygone ; couleurs, épaisseur, opacité (N)
 - [ ] Tampons (« Approuvé », « Confidentiel »…, et tampons image) (N)
-- [ ] Sélection, déplacement, redimensionnement, suppression, annuler / rétablir (N)
-- [ ] Liste des annotations du document, navigation vers chacune
-- [ ] Enregistrement : PDF modifié envoyé au serveur → nouvelle révision (N → S)
+- [ ] Déplacement et redimensionnement de tous les types (N)
 - [ ] Aplatir les annotations (les fondre dans le contenu) (N)
 
 ## T4 : édition du texte existant

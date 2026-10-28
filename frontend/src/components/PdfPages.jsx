@@ -42,6 +42,9 @@ function distance(touches) {
 // `ref.current.scrollToRect(index, rect)` un rectangle de la page (résultat
 // de recherche, en points) dans la zone visible s'il n'y est pas.
 // `highlights` : Map index de page → surlignages (voir PdfTextLayer).
+// `annotating` : état et actions des annotations, passés à chaque page
+// (PdfPageView) ; avec l'outil Note ou Texte, le texte ne se sélectionne
+// plus : un clic pose l'annotation.
 // `onScaleChange(scale)` informe la barre d'outils, `onPageChange(index)`
 // suit la page courante, `onZoomChange(facteur)` demande un nouveau zoom
 // (pincement, Ctrl + molette).
@@ -55,6 +58,7 @@ function PdfPages({
 	onPageChange,
 	onZoomChange,
 	highlights,
+	annotating,
 }) {
 	const containerRef = useRef(null);
 	const contentRef = useRef(null);
@@ -267,6 +271,11 @@ function PdfPages({
 		<div
 			ref={containerRef}
 			className="pdf-pages"
+			data-tool={
+				annotating?.isAnnotating && !annotating.isLocked
+					? annotating.tool
+					: undefined
+			}
 			onScroll={handleScroll}
 			// Focusable : flèches, Page suivante / précédente font défiler.
 			tabIndex={0}
@@ -289,6 +298,7 @@ function PdfPages({
 						scale={scale}
 						rotation={rotation}
 						highlights={highlights?.get(index)}
+						annotating={annotating}
 						style={{
 							insetBlockStart: layout.tops[index],
 							insetInlineStart: `calc(50% - ${layout.widths[index] / 2}px)`,

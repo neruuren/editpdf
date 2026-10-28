@@ -3,11 +3,22 @@ import './ConfirmDialog.css';
 
 // 🔹 Demande de confirmation dans un <dialog> modal natif (focus piégé,
 // Échap pour annuler, fond inerte). Le parent l'ouvre via `ref.current.showModal()`.
-function ConfirmDialog({ ref, title, children, confirmLabel, onConfirm }) {
+// `onCancel` (facultatif) : fermé sans confirmer (bouton, Échap).
+function ConfirmDialog({
+	ref,
+	title,
+	children,
+	confirmLabel,
+	onConfirm,
+	onCancel,
+}) {
 	const titleId = useId();
 
+	// Pas d'après l'événement « close » : il peut arriver tard (après une
+	// navigation dans l'historique).
 	function handleCancel() {
 		ref.current.close();
+		onCancel?.();
 	}
 
 	function handleConfirm() {
@@ -16,7 +27,13 @@ function ConfirmDialog({ ref, title, children, confirmLabel, onConfirm }) {
 	}
 
 	return (
-		<dialog ref={ref} className="confirm-dialog" aria-labelledby={titleId}>
+		<dialog
+			ref={ref}
+			className="confirm-dialog"
+			aria-labelledby={titleId}
+			// Échap
+			onCancel={() => onCancel?.()}
+		>
 			<h2 id={titleId} className="confirm-dialog__title">
 				{title}
 			</h2>

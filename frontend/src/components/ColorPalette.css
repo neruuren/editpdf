@@ -1,0 +1,69 @@
+.color-palette {
+	display: flex;
+	flex-wrap: nowrap;
+	align-items: center;
+	gap: var(--space-1);
+	margin: 0;
+	padding: 0;
+	border: 0;
+	min-inline-size: 0;
+}
+
+/* Pastille de 28 px dans une cible tactile de 36 px (la palette tient sur
+   une ligne de téléphone). */
+.color-palette__swatch {
+	position: relative;
+	display: grid;
+	place-items: center;
+	inline-size: 2.25rem;
+	block-size: 2.75rem;
+	cursor: pointer;
+}
+
+.color-palette__swatch::before {
+	content: '';
+	inline-size: 1.5rem;
+	block-size: 1.5rem;
+	border: 1px solid color-mix(in srgb, var(--color-text) 35%, transparent);
+	border-radius: 50%;
+	background: var(--swatch-color);
+}
+
+.color-palette__swatch:has(:checked)::before,
+.color-palette__custom[data-checked]::before {
+	outline: 2px solid var(--color-text);
+	outline-offset: 2px;
+}
+
+.color-palette__swatch:has(:focus-visible)::before {
+	outline: 3px solid var(--color-accent);
+	outline-offset: 2px;
+}
+
+/* Couleur libre : un arc-en-ciel tant qu'aucune n'est choisie. */
+.color-palette__custom::before {
+	background: var(
+		--swatch-color,
+		conic-gradient(#e53935, #ffeb3b, #66bb6a, #42a5f5, #ab47bc, #e53935)
+	);
+}
+
+/* Le sélecteur natif couvre la pastille, invisible : un clic l'ouvre. */
+.color-palette__picker {
+	position: absolute;
+	inset: 0;
+	inline-size: 100%;
+	block-size: 100%;
+	opacity: 0;
+	cursor: pointer;
+}
+
+.color-palette:disabled {
+	opacity: 0.5;
+}
+
+@media (forced-colors: active) {
+	.color-palette__swatch::before {
+		forced-color-adjust: none;
+	}
+}

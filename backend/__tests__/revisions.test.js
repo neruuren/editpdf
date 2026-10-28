@@ -184,6 +184,66 @@ describe('POST /api/v1/documents/:id/revisions', () => {
 		expect((await search('lisible')).body.count).toBe(0);
 	});
 
+	it('enregistre l’origine « annotate » d’un enregistrement de la visionneuse', async () => {
+		const document = await uploadPdf(agent);
+		const response = await agent
+			.post(`/api/v1/documents/${document.id}/revisions`)
+			.field('origin', 'annotate')
+			.field('baseRevision', '0')
+			.attach('file', await buildPdf({ text: 'Annote' }), 'annote.pdf');
+		expect(response.status).toBe(201);
+		expect(response.body.data.currentRevision).toBe(1);
+		const revisions = await listRevisions(document.id);
+		expect(revisions.body.data[0]).toMatchObject({
+			number: 1,
+			origin: 'annotate',
+		});
+	});
+
+	it('refuse (409) un enregistrement parti d’une révision qui n’est plus la courante', async () => {
+		const document = await uploadPdf(agent);
+		await sendVersion(document.id, { text: 'Ailleurs' });
+		const response = await agent
+			.post(`/api/v1/documents/${document.id}/revisions`)
+			.field('origin', 'annotate')
+			.field('baseRevision', '0')
+			.attach('file', await buildPdf({ text: 'Annote' }), 'annote.pdf');
+		expect(response.status).toBe(409);
+		expect(response.body.data).toEqual({ currentRevision: 1 });
+		expect(filesIn('tmp')).toEqual([]);
+		expect((await listRevisions(document.id)).body.count).toBe(2);
+
+		// Sans révision de départ : enregistré quand même.
+		const forced = await agent
+			.post(`/api/v1/documents/${document.id}/revisions`)
+			.field('origin', 'annotate')
+			.attach('file', await buildPdf({ text: 'Annote' }), 'annote.pdf');
+		expect(forced.status).toBe(201);
+		expect(forced.body.data.currentRevision).toBe(2);
+	});
+
+	it.each([
+		['une origine inconnue', { origin: 'restore' }],
+		['une révision de départ invalide', { baseRevision: '-1' }],
+		['une révision de départ trop longue', { baseRevision: '1234567890' }],
+		['un champ trop long', { origin: 'x'.repeat(40) }],
+		['un champ en trop', { origin: 'annotate', baseRevision: '0', note: 'x' }],
+	])('refuse (400) %s', async (_, fields) => {
+		const document = await uploadPdf(agent);
+		let pending = agent.post(`/api/v1/documents/${document.id}/revisions`);
+		for (const [name, value] of Object.entries(fields)) {
+			pending = pending.field(name, value);
+		}
+		const response = await pending.attach(
+			'file',
+			await buildPdf({ text: 'Autre' }),
+			'autre.pdf',
+		);
+		expect(response.status).toBe(400);
+		expect(filesIn('tmp')).toEqual([]);
+		expect((await listRevisions(document.id)).body.count).toBe(1);
+	});
+
 	it('numérote sans collision deux envois simultanés', async () => {
 		const document = await uploadPdf(agent, {});
 		const [first, second] = await Promise.all([

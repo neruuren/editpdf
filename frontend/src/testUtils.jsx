@@ -1,5 +1,5 @@
 import { render } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { RouterProvider, createMemoryRouter } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { vi } from 'vitest';
 import { createQueryClient } from './utils/queryClient';
@@ -8,9 +8,13 @@ import { createQueryClient } from './utils/queryClient';
 // avec un cache TanStack Query vierge à chaque appel.
 export function renderWithProviders(ui, { route = '/' } = {}) {
 	const queryClient = createQueryClient();
+	// Routeur de données, comme main.jsx (useBlocker).
+	const router = createMemoryRouter([{ path: '*', element: ui }], {
+		initialEntries: [route],
+	});
 	return render(
 		<QueryClientProvider client={queryClient}>
-			<MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>
+			<RouterProvider router={router} />
 		</QueryClientProvider>,
 	);
 }

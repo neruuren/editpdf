@@ -8,7 +8,8 @@
 
 .viewer-sidebar__tabs {
 	display: grid;
-	grid-template-columns: repeat(2, 1fr);
+	/* Cinq onglets au plus : trois par ligne dans un panneau étroit. */
+	grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr));
 	gap: var(--space-1);
 	padding: var(--space-2);
 	border-block-end: 1px solid var(--color-border);

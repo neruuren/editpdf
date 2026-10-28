@@ -131,4 +131,21 @@
 	stroke: currentColor;
 	stroke-width: 2.25;
 	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+/* Annotations non enregistrées : une pastille sur le bouton « Annoter ». */
+.viewer-toolbar__icon[data-unsaved] {
+	position: relative;
+}
+
+.viewer-toolbar__icon[data-unsaved]::after {
+	content: '';
+	position: absolute;
+	inset-block-start: 0.4rem;
+	inset-inline-end: 0.4rem;
+	inline-size: 0.5rem;
+	block-size: 0.5rem;
+	border-radius: 50%;
+	background: var(--color-accent);
 }

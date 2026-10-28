@@ -49,7 +49,8 @@ function call(type, params, { transfer = [], signal } = {}) {
 	const id = nextRequestId++;
 	return new Promise((resolve, reject) => {
 		pending.set(id, { resolve, reject });
-		getWorker().postMessage({ id, type, ...params }, transfer);
+		// `id` et `type` en dernier : aucun paramètre ne les remplace.
+		getWorker().postMessage({ ...params, id, type }, transfer);
 		signal?.addEventListener(
 			'abort',
 			() => {
@@ -75,6 +76,22 @@ function _pdf(documentId, info) {
 			call('search', { documentId, from, count, query }, { signal }),
 		renderPageJpeg: (index, { scale, signal } = {}) =>
 			call('renderJpeg', { documentId, index, scale }, { signal }),
+		getAnnotations: (index, { signal } = {}) =>
+			call('annotations', { documentId, index }, { signal }),
+		getAnnotationPages: (from, count, { signal } = {}) =>
+			call('annotationPages', { documentId, from, count }, { signal }),
+		createAnnotation: (index, spec, { author }) =>
+			call('createAnnotation', { documentId, index, spec, author }),
+		// `annotationId` : `id` est celui de la requête (call).
+		updateAnnotation: (index, annotationId, changes) =>
+			call('updateAnnotation', { documentId, index, annotationId, changes }),
+		deleteAnnotation: (index, annotationId) =>
+			call('deleteAnnotation', { documentId, index, annotationId }),
+		removeMarkup: (index, from, to) =>
+			call('removeMarkup', { documentId, index, from, to }),
+		undo: () => call('history', { documentId, direction: -1 }),
+		redo: () => call('history', { documentId, direction: 1 }),
+		save: () => call('save', { documentId }),
 		// Mot de passe d'un PDF protégé (needsPassword) : renvoie le document
 		// déverrouillé, ou null si le mot de passe est faux.
 		unlock: async (password) => {
@@ -99,6 +116,16 @@ function _pdf(documentId, info) {
 //   pages de `from` à `from + count - 1` qui contiennent `query` (sans
 //   casse ni accents) ;
 // - renderPageJpeg(index, { scale, signal }) → Uint8Array (impression) ;
+// - annotations (workers/pdfAnnotations.js, mêmes coordonnées que le texte) :
+//   getAnnotations(index, { signal }) → [{ id, type, rect, color, contents,
+//   author, modifiedAt, … }] ; getAnnotationPages(from, count, { signal })
+//   → [{ index, annotations }] (pages qui en ont) ;
+//   createAnnotation(index, spec, { author }) → { id, page, canUndo,
+//   canRedo, isDirty } ; updateAnnotation(index, id, changes),
+//   deleteAnnotation(index, id), removeMarkup(index, from, to) (retire
+//   surlignages… des caractères from à to ; + count), undo(), redo() →
+//   { page (null : toutes), canUndo, canRedo, isDirty } ;
+// - save() → Uint8Array : le PDF modifié (enregistrement incrémental) ;
 // - unlock(password) → document déverrouillé | null ;
 // - close() : libère le document dans le worker (déverrouillé ou non).
 export async function openPdf(data) {

@@ -25,7 +25,7 @@ T2 ouvre les PDF dans le navigateur avec MuPDF.js (ADR 0001 et 0002). Il faut d�
 
 ### Ajouts de T2b
 
-- **Calque de texte** : le texte de chaque page affichée est lu par MuPDF (texte structuré, `extractPageText`) et posé en `<span>` transparents, une ligne par span, à la position et à la hauteur de la ligne du PDF, étirés horizontalement (`scaleX`) pour avoir sa largeur, tournés selon sa direction. La sélection, la copie, le menu du téléphone et les lecteurs d'écran sont ceux du navigateur. La rotation d'affichage est une transformation CSS du calque entier.
+- **Calque de texte** : le texte de chaque page affichée est lu par MuPDF (texte structuré, `extractPageText`) et posé en `<span>` transparents, un par mot (avec les blancs qui le suivent), à la position et à la hauteur du mot dans le PDF, étirés horizontalement (`scaleX`) pour avoir sa largeur, tournés selon sa direction. Au départ, c'était un span par ligne, mais les lettres de la police de l'app n'ont pas les largeurs de celles du PDF : les mots dérivaient au fil de la ligne, et la sélection affichée tombait à côté (corrigé en T3a). La sélection, la copie, le menu du téléphone et les lecteurs d'écran sont ceux du navigateur. La rotation d'affichage est une transformation CSS du calque entier.
 - **Recherche dans le document** : faite dans le worker, page par page (par lots de 10 pages, annulable), **sans casse ni accents** (NFKD, comme l'index FTS5 du serveur) plutôt qu'avec `page.search` de MuPDF, sensible à la casse. Le texte lu est gardé par le worker (1 million de caractères par document au plus), pour qu'une deuxième recherche ne relise rien. 1 000 résultats au plus.
 - **Signets** : en base (`bookmarks`, un par page, libellé facultatif), pas dans le PDF : ils survivent aux nouvelles révisions et ne modifient pas le fichier.
 - **PDF protégés** : le mot de passe est essayé dans le worker (`authenticatePassword`) et gardé **en mémoire de l'onglet** le temps de la session (oublié à la déconnexion, sur un 401 et au rechargement). Il n'est jamais envoyé au serveur, qui ne peut donc toujours ni indexer ni rendre la miniature d'un PDF protégé.
@@ -37,6 +37,6 @@ T2 ouvre les PDF dans le navigateur avec MuPDF.js (ADR 0001 et 0002). Il faut d�
 
 - L'ouverture lit les dimensions de toutes les pages (rapide, mais proportionnel au nombre de pages).
 - À zoom très élevé, une grande page perd en netteté (borne de 16 Mpx) : il faudra des tuiles si cela gêne.
-- Le calque de texte suit la police de l'app, étirée à la largeur des lignes : la sélection tombe juste à la ligne près, à quelques pixels près dans la ligne.
+- Le calque de texte suit la police de l'app, étirée à la largeur de chaque mot : la sélection tombe juste au mot près, à quelques pixels près dans un mot.
 - Une recherche dans un très gros document relit les pages au-delà du cache de texte.
 - L'impression d'un long document est lente et gourmande en mémoire (d'où les limites de 300 pages et 600 Mpx), et le texte imprimé n'est pas vectoriel.

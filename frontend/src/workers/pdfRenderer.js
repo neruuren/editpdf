@@ -33,6 +33,7 @@ const ROTATIONS = new Set([0, 90, 180, 270]);
 // serveur (pdfService).
 const MAX_CHARS_PER_PAGE = 100_000;
 const MAX_TEXT_LINES = 5000;
+const MAX_TEXT_RUNS = 20_000;
 // Recherche : au plus 1 000 résultats par page et 200 caractères cherchés ;
 // l'extrait montre 40 caractères de part et d'autre.
 const MAX_HITS_PER_PAGE = 1000;
@@ -252,28 +253,66 @@ export function extractPageText(document, index) {
 	}
 }
 
-// 🔹 Lignes du calque de texte : pour chacune, son texte et le rectangle
-// (tourné de `angle` degrés autour de son coin haut gauche x, y) qu'il
-// occupe sur la page. Au-delà de MAX_TEXT_LINES lignes (page piégée de
-// dizaines de milliers de lignes d'un caractère), pas de calque : la page
-// reste cherchable, mais des milliers d'éléments figeraient l'affichage.
+// Rectangle des caractères `start` à `end - 1`, tourné de `angle` degrés
+// autour de son coin haut gauche x, y.
+function _textBox(text, quads, start, end) {
+	const first = start * 8;
+	const last = (end - 1) * 8;
+	const [ulx, uly] = [quads[first], quads[first + 1]];
+	const [urx, ury] = [quads[last + 2], quads[last + 3]];
+	const [llx, lly] = [quads[first + 4], quads[first + 5]];
+	return {
+		text: text.slice(start, end),
+		// Position dans le texte de la page : une sélection du calque devient
+		// des positions de caractères (annotations).
+		start,
+		x: ulx,
+		y: uly,
+		width: _finiteSize(Math.hypot(urx - ulx, ury - uly)),
+		height: _finiteSize(Math.hypot(llx - ulx, lly - uly)),
+		angle: (Math.atan2(ury - uly, urx - ulx) * 180) / Math.PI || 0,
+	};
+}
+
+// Une ligne découpée en mots, chacun avec les blancs qui le suivent.
+function _lineRuns(text, start, end) {
+	const runs = [];
+	let from = start;
+	for (let i = start + 1; i < end; i++) {
+		if (/\s/.test(text[i - 1]) && !/\s/.test(text[i])) {
+			runs.push([from, i]);
+			from = i;
+		}
+	}
+	runs.push([from, end]);
+	return runs;
+}
+
+// 🔹 Morceaux du calque de texte : un par mot (avec les blancs qui le
+// suivent), à sa position exacte sur la page. Une ligne entière écrite dans
+// la police du navigateur puis étirée à la largeur du PDF dériverait au fil
+// de la ligne (les lettres n'ont pas les mêmes largeurs) : la sélection
+// affichée ne tomberait pas sur les mots. Pour chacun : son texte, sa
+// position dans le texte de la page, son rectangle et `isLineEnd` (dernier
+// de sa ligne). Au-delà de MAX_TEXT_RUNS mots, un morceau par ligne ; au-delà
+// de MAX_TEXT_LINES lignes (page piégée de dizaines de milliers de lignes
+// d'un caractère), pas de calque : la page reste cherchable, mais des
+// milliers d'éléments figeraient l'affichage.
 export function textLayerLines({ text, quads, lines }) {
 	if (lines.length > MAX_TEXT_LINES) return [];
-	return lines.map(({ start, end }) => {
-		const first = start * 8;
-		const last = (end - 1) * 8;
-		const [ulx, uly] = [quads[first], quads[first + 1]];
-		const [urx, ury] = [quads[last + 2], quads[last + 3]];
-		const [llx, lly] = [quads[first + 4], quads[first + 5]];
-		return {
-			text: text.slice(start, end),
-			x: ulx,
-			y: uly,
-			width: _finiteSize(Math.hypot(urx - ulx, ury - uly)),
-			height: _finiteSize(Math.hypot(llx - ulx, lly - uly)),
-			angle: (Math.atan2(ury - uly, urx - ulx) * 180) / Math.PI || 0,
-		};
+	const byLine = lines.map(({ start, end }) => _lineRuns(text, start, end));
+	const runCount = byLine.reduce((total, runs) => total + runs.length, 0);
+	const items = [];
+	lines.forEach(({ start, end }, position) => {
+		const runs = runCount > MAX_TEXT_RUNS ? [[start, end]] : byLine[position];
+		runs.forEach(([from, to], index) => {
+			items.push({
+				..._textBox(text, quads, from, to),
+				isLineEnd: index === runs.length - 1,
+			});
+		});
 	});
+	return items;
 }
 
 // Dimension d'une ligne ramenée entre 0 et la taille maximale d'une page.
@@ -310,8 +349,9 @@ export function normalizeQuery(query) {
 }
 
 // Rectangle englobant [x0, y0, x1, y1] des caractères de `from` à `to`
-// inclus, ligne par ligne (un résultat peut tenir sur deux lignes).
-function _hitRects(pageText, from, to) {
+// inclus, ligne par ligne (un résultat peut tenir sur deux lignes) :
+// surlignage d'un résultat de recherche ou d'une sélection annotée.
+export function textRects(pageText, from, to) {
 	const rects = [];
 	let rect = null;
 	for (let i = from; i <= to; i++) {
@@ -358,7 +398,7 @@ export function searchPageText(pageText, query) {
 		const to = origins[position + query.length - 1];
 		const { text } = pageText;
 		hits.push({
-			rects: _hitRects(pageText, from, to),
+			rects: textRects(pageText, from, to),
 			before: _snippetPart(
 				text.slice(Math.max(0, from - SNIPPET_CONTEXT), from),
 			).trimStart(),

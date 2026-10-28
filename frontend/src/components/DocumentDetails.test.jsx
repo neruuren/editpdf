@@ -336,7 +336,7 @@ describe('DocumentDetails (panneau Informations)', () => {
 
 	it('restaure une révision et en supprime une après confirmation', async () => {
 		const REVISION_1 = { ...ORIGINAL, number: 1, identicalToCurrent: false };
-		const REVISION_2 = { ...ORIGINAL, number: 2 };
+		const REVISION_2 = { ...ORIGINAL, number: 2, origin: 'annotate' };
 		let current = { ...BAIL, currentRevision: 2 };
 		let revisions = [
 			REVISION_2,
@@ -363,6 +363,8 @@ describe('DocumentDetails (panneau Informations)', () => {
 		const history = (
 			await screen.findByRole('heading', { name: 'Historique' })
 		).closest('section');
+		// Enregistrée par la visionneuse (annotations).
+		expect(await within(history).findByText(/annotations/)).toBeInTheDocument();
 
 		await userEvent.click(
 			await within(history).findByRole('button', {

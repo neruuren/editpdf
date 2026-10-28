@@ -1,13 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useBlocker } from 'react-router-dom';
+import AnnotationToolbar from './AnnotationToolbar';
+import ConfirmDialog from './ConfirmDialog';
 import DocumentDetails from './DocumentDetails';
+import NotePopover from './NotePopover';
 import PdfPages from './PdfPages';
 import PdfPasswordForm from './PdfPasswordForm';
 import PdfPresentation from './PdfPresentation';
 import PrintDialog from './PrintDialog';
+import SaveConflictDialog from './SaveConflictDialog';
+import SelectionToolbar from './SelectionToolbar';
 import StatusMessage from './StatusMessage';
 import ViewerSearchBar from './ViewerSearchBar';
 import ViewerSidebar from './ViewerSidebar';
 import ViewerToolbar from './ViewerToolbar';
+import {
+	isSaveConflict,
+	useAnnotationEditor,
+} from '../hooks/useAnnotationEditor';
+import { useAnnotationList } from '../hooks/useAnnotationList';
+import { useAnnotationTools } from '../hooks/useAnnotationTools';
+import { useSession } from '../hooks/useAuth';
 import {
 	useBookmarks,
 	useRemoveBookmark,
@@ -16,6 +29,7 @@ import {
 import { useDocumentSearch } from '../hooks/useDocumentSearch';
 import { usePdfDocument } from '../hooks/usePdfDocument';
 import { useReadingPosition } from '../hooks/useReadingPosition';
+import { useTextSelection } from '../hooks/useTextSelection';
 import {
 	POINTS_TO_PX,
 	ROTATIONS,
@@ -52,16 +66,39 @@ function initialResult(search, startPage) {
 // 🔹 Visionneuse d'un document : barre d'outils, barre de recherche,
 // panneau de navigation (miniatures, sommaire, signets, résultats), pages
 // en défilement continu avec leur calque de texte, panneau
-// « Informations » (la fiche), présentation et impression. Reprend à la
-// page enregistrée sur le serveur (et l'y enregistre en lisant), au zoom
-// mémorisé par l'appareil. Un PDF protégé demande son mot de passe.
+// « Informations » (la fiche), présentation, impression et annotations
+// (barre AnnotationToolbar, barre de la sélection de texte, bulles des
+// notes ; enregistrées en nouvelle révision). Reprend à la page
+// enregistrée sur le serveur (et l'y enregistre en lisant), au zoom
+// mémorisé par l'appareil. Un PDF protégé demande son mot de passe. Tant
+// que des annotations ne sont pas enregistrées, la révision ouverte reste
+// affichée (même si une autre devient courante) et quitter la visionneuse
+// demande confirmation.
 // Raccourcis : ← / → page précédente / suivante, Début / Fin, + / − / 0
 // (largeur), aussi avec Ctrl (à la place du zoom du navigateur), Ctrl + F
 // recherche, F3 / Maj + F3 résultat suivant / précédent, Ctrl + P
-// impression, Échap ferme la recherche puis les panneaux.
+// impression, Ctrl + S enregistrer, Ctrl + Z / Ctrl + Maj + Z (ou Ctrl + Y)
+// annuler / rétablir, Suppr supprimer l'annotation sélectionnée, Échap
+// la désélectionne, puis ferme la recherche et les panneaux.
 function PdfViewer({ document }) {
-	const pdfState = usePdfDocument(document);
+	// Révision retenue tant que des annotations ne sont pas enregistrées.
+	const [heldRevision, setHeldRevision] = useState(null);
+	const pdfState = usePdfDocument(
+		document.id,
+		heldRevision ?? document.currentRevision,
+	);
 	const pdf = pdfState.status === 'ready' ? pdfState.pdf : null;
+	const author = useSession().data?.annotationAuthor ?? '';
+	const editor = useAnnotationEditor({
+		document,
+		pdf,
+		revision: pdfState.revision,
+		author,
+	});
+	const isEditLocked = editor.isLocked || Boolean(pdfState.isReloading);
+	const tools = useAnnotationTools(editor, { isLocked: isEditLocked });
+	const holdRevision = editor.isDirty ? pdfState.revision : null;
+	if (holdRevision !== heldRevision) setHeldRevision(holdRevision);
 	const saveReading = useReadingPosition(document.id);
 	const bookmarks = useBookmarks(document.id).data ?? [];
 	const setBookmark = useSetBookmark(document.id);
@@ -83,9 +120,18 @@ function PdfViewer({ document }) {
 	const [chosenResult, setChosenResult] = useState(null);
 	const [isPresenting, setIsPresenting] = useState(false);
 	const pagesRef = useRef(null);
+	const pagesWrapperRef = useRef(null);
 	const searchInputRef = useRef(null);
 	const printRef = useRef(null);
+	const conflictRef = useRef(null);
+	const leaveRef = useRef(null);
 	const hasSavedRef = useRef(false);
+	const [shownPdf, setShownPdf] = useState(pdf);
+	// Autre PDF (révision suivante) : sélection et bulles oubliées.
+	if (shownPdf !== pdf) {
+		setShownPdf(pdf);
+		tools.reset();
+	}
 
 	const pageCount = pdf?.pageCount ?? document.pageCount;
 	const search = useDocumentSearch(pdf, isSearchOpen ? searchQuery : '');
@@ -96,6 +142,78 @@ function PdfViewer({ document }) {
 	// Le sommaire d'abord quand le PDF en a un.
 	const tab =
 		sidebarTab ?? (pdf?.outline.length > 0 ? 'outline' : 'thumbnails');
+	const annotationList = useAnnotationList(pdf, {
+		versions: editor.versions,
+		allVersion: editor.allVersion,
+		isEnabled: isSidebarOpen && tab === 'annotations',
+	});
+	const placesAnnotations =
+		tools.isAnnotating && (tools.tool === 'note' || tools.tool === 'text');
+	const [textSelection, clearTextSelection] = useTextSelection(
+		pagesWrapperRef,
+		{
+			isEnabled: Boolean(pdf) && !placesAnnotations && !isPresenting,
+			// Outil Surligner : la sélection faite à la souris est annotée
+			// aussitôt, dans le style choisi.
+			onPointerSelection: (selection) => {
+				if (!tools.isAnnotating || tools.tool !== 'markup') return;
+				clearTextSelection();
+				tools.markup(tools.markupStyle, selection.ranges);
+			},
+		},
+	);
+
+	// Quitter la visionneuse (lien, retour du navigateur) avec des
+	// annotations non enregistrées : confirmation.
+	const blocker = useBlocker(
+		({ currentLocation, nextLocation }) =>
+			editor.isDirty && currentLocation.pathname !== nextLocation.pathname,
+	);
+	// Réponse donnée dans le dialogue (rester ou quitter).
+	const hasAnsweredLeaveRef = useRef(false);
+	useEffect(() => {
+		if (blocker.state !== 'blocked') return undefined;
+		hasAnsweredLeaveRef.current = false;
+		const dialog = leaveRef.current;
+		dialog?.showModal();
+		// Retour du navigateur : React Router remet l'historique en place par
+		// une seconde navigation, qui ferme le dialogue (constaté sous
+		// Chromium) : il est rouvert tant qu'on n'y a pas répondu.
+		let timer;
+		function handleClose() {
+			timer = setTimeout(() => {
+				if (!hasAnsweredLeaveRef.current && !dialog.open) dialog.showModal();
+			}, 0);
+		}
+		dialog?.addEventListener('close', handleClose);
+		return () => {
+			dialog?.removeEventListener('close', handleClose);
+			clearTimeout(timer);
+		};
+	}, [blocker.state]);
+
+	// Fermer l'onglet ou recharger : l'avertissement du navigateur.
+	useEffect(() => {
+		if (!editor.isDirty) return undefined;
+		function handleBeforeUnload(event) {
+			event.preventDefault();
+		}
+		window.addEventListener('beforeunload', handleBeforeUnload);
+		return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+	}, [editor.isDirty]);
+
+	const { save } = editor;
+	const saveAnnotations = useCallback(
+		(options) => {
+			if (!editor.isDirty || save.isPending) return;
+			save.mutate(options, {
+				onError: (error) => {
+					if (isSaveConflict(error)) conflictRef.current?.showModal();
+				},
+			});
+		},
+		[editor.isDirty, save],
+	);
 
 	// Surlignages par page : tous les résultats, l'actif marqué.
 	const highlights = useMemo(() => {
@@ -247,12 +365,33 @@ function PdfViewer({ document }) {
 				openPrint();
 				return;
 			}
+			// Jamais la boîte « Enregistrer la page » du navigateur.
+			if (withModifier && key === 's') {
+				event.preventDefault();
+				saveAnnotations();
+				return;
+			}
 			if (event.key === 'F3' && isSearchOpen) {
 				event.preventDefault();
 				stepResult(event.shiftKey ? -1 : 1);
 				return;
 			}
 			if (isTypingTarget(event.target)) return;
+			if (withModifier && (key === 'z' || key === 'y')) {
+				event.preventDefault();
+				if (key === 'y' || event.shiftKey) editor.redo();
+				else editor.undo();
+				return;
+			}
+			if (
+				(event.key === 'Delete' || event.key === 'Backspace') &&
+				tools.isAnnotating &&
+				tools.selected
+			) {
+				event.preventDefault();
+				tools.removeSelected();
+				return;
+			}
 			const zoomKeys = { '+': 1, '=': 1, '-': -1 };
 			if (event.key in zoomKeys) {
 				event.preventDefault();
@@ -277,7 +416,8 @@ function PdfViewer({ document }) {
 				return;
 			}
 			if (event.key === 'Escape') {
-				if (isInfoOpen) setIsInfoOpen(false);
+				if (tools.selected) tools.select(null, null);
+				else if (isInfoOpen) setIsInfoOpen(false);
 				else setIsSidebarOpen(false);
 			}
 		}
@@ -295,7 +435,60 @@ function PdfViewer({ document }) {
 		openSearch,
 		openPrint,
 		stepResult,
+		saveAnnotations,
+		editor,
+		tools,
 	]);
+
+	const annotating = {
+		pageVersion: editor.pageVersion,
+		isAnnotating: tools.isAnnotating,
+		isLocked: isEditLocked,
+		tool: tools.tool,
+		selected: tools.selected,
+		textEditor: tools.textEditor,
+		onSelect: tools.select,
+		onSelectedChange: tools.handleSelectedChange,
+		onChange: editor.update,
+		onPlace: tools.place,
+		onOpenNote: tools.openNote,
+		onEditText: tools.editText,
+		onCommitText: tools.commitText,
+		onCancelText: tools.cancelText,
+	};
+
+	// Une annotation choisie dans la liste : amenée à l'écran ; sélectionnée
+	// en mode annotation, sinon son texte s'ouvre (s'il en a un).
+	function handleSelectAnnotation(index, annotation) {
+		pagesRef.current?.scrollToRect(index, annotation.rect);
+		closeSidebarOnSmallScreen();
+		if (tools.isAnnotating) tools.select(index, annotation);
+		else if (annotation.type === 'Text' || annotation.contents.trim()) {
+			tools.openNote(index, annotation);
+		}
+	}
+
+	async function handleCopySelection() {
+		const text = window.getSelection()?.toString() ?? '';
+		try {
+			await navigator.clipboard?.writeText(text);
+		} catch {
+			// Presse-papiers refusé : Ctrl + C reste possible.
+		}
+		clearTextSelection();
+	}
+
+	function handleSelectionMarkup(type) {
+		const ranges = textSelection?.ranges ?? [];
+		clearTextSelection();
+		tools.markup(type, ranges);
+	}
+
+	function handleSelectionUnmark() {
+		const ranges = textSelection?.ranges ?? [];
+		clearTextSelection();
+		tools.unmark(ranges);
+	}
 
 	function renderPages() {
 		switch (pdfState.status) {
@@ -340,6 +533,7 @@ function PdfViewer({ document }) {
 						onPageChange={setPage}
 						onZoomChange={setZoom}
 						highlights={isSearchOpen ? highlights : undefined}
+						annotating={annotating}
 					/>
 				);
 		}
@@ -358,6 +552,8 @@ function PdfViewer({ document }) {
 				isInfoOpen={isInfoOpen}
 				isSearchOpen={isSearchOpen}
 				isBookmarked={isBookmarked}
+				isAnnotating={tools.isAnnotating}
+				hasUnsavedChanges={editor.isDirty}
 				onGoToPage={goToPage}
 				onZoomChange={setZoom}
 				onZoomStep={handleZoomStep}
@@ -366,6 +562,7 @@ function PdfViewer({ document }) {
 				onToggleInfo={() => setIsInfoOpen(!isInfoOpen)}
 				onToggleSearch={isSearchOpen ? closeSearch : openSearch}
 				onToggleBookmark={handleToggleBookmark}
+				onToggleAnnotate={tools.toggleAnnotating}
 				onPresent={() => setIsPresenting(true)}
 				onPrint={openPrint}
 			/>
@@ -379,6 +576,43 @@ function PdfViewer({ document }) {
 					onStep={stepResult}
 					onClose={closeSearch}
 				/>
+			)}
+			{pdf && tools.isAnnotating && (
+				<AnnotationToolbar
+					tool={tools.tool}
+					onToolChange={tools.changeTool}
+					markupStyle={tools.markupStyle}
+					onMarkupStyleChange={tools.setMarkupStyle}
+					color={tools.color}
+					onColorChange={tools.changeColor}
+					fontSize={tools.fontSize}
+					onFontSizeChange={tools.changeFontSize}
+					selected={tools.selected?.annotation ?? null}
+					onComment={tools.commentSelected}
+					onEditText={() =>
+						tools.editText(tools.selected.page, tools.selected.annotation)
+					}
+					onDelete={tools.removeSelected}
+					canUndo={editor.canUndo && !isEditLocked}
+					canRedo={editor.canRedo && !isEditLocked}
+					onUndo={editor.undo}
+					onRedo={editor.redo}
+					isDirty={editor.isDirty}
+					isSaving={save.isPending || Boolean(pdfState.isReloading)}
+					isLocked={isEditLocked}
+					onSave={() => saveAnnotations()}
+					onClose={tools.toggleAnnotating}
+				/>
+			)}
+			{editor.error && (
+				<p className="pdf-viewer__error" role="alert">
+					Annotation non modifiée : {editor.error.message}
+				</p>
+			)}
+			{save.error && !isSaveConflict(save.error) && (
+				<p className="pdf-viewer__error" role="alert">
+					Annotations non enregistrées : {save.error.message}
+				</p>
 			)}
 			{(setBookmark.error || removeBookmark.error) && (
 				<p className="pdf-viewer__error" role="alert">
@@ -402,10 +636,16 @@ function PdfViewer({ document }) {
 							search={isSearchOpen ? search : null}
 							activeResult={activeResult}
 							onSelectResult={handleSelectResult}
+							annotationList={annotationList}
+							selectedAnnotation={tools.selected}
+							onSelectAnnotation={handleSelectAnnotation}
+							pageVersion={editor.pageVersion}
 						/>
 					</div>
 				)}
-				<div className="pdf-viewer__pages">{renderPages()}</div>
+				<div ref={pagesWrapperRef} className="pdf-viewer__pages">
+					{renderPages()}
+				</div>
 				{isInfoOpen && (
 					<aside className="pdf-viewer__info" aria-label="Informations">
 						<div className="pdf-viewer__info-header">
@@ -430,6 +670,46 @@ function PdfViewer({ document }) {
 					title={document.title}
 				/>
 			)}
+			{pdf && textSelection && !isPresenting && (
+				<SelectionToolbar
+					selection={textSelection}
+					color={tools.markupColor}
+					onColorChange={tools.setMarkupColor}
+					onMarkup={handleSelectionMarkup}
+					onUnmark={handleSelectionUnmark}
+					onCopy={handleCopySelection}
+					isLocked={isEditLocked}
+				/>
+			)}
+			{pdf && tools.note && (
+				<NotePopover
+					key={`${tools.note.page}:${tools.note.annotation.id}`}
+					annotation={tools.note.annotation}
+					getAnchor={tools.note.getAnchor}
+					canEdit={tools.canEdit && !tools.note.annotation.isLocked}
+					onClose={tools.closeNote}
+				/>
+			)}
+			<SaveConflictDialog
+				ref={conflictRef}
+				onForce={() => saveAnnotations({ force: true })}
+				onDiscard={editor.discard}
+			/>
+			<ConfirmDialog
+				ref={leaveRef}
+				title="Quitter sans enregistrer ?"
+				confirmLabel="Quitter sans enregistrer"
+				onConfirm={() => {
+					hasAnsweredLeaveRef.current = true;
+					blocker.proceed?.();
+				}}
+				onCancel={() => {
+					hasAnsweredLeaveRef.current = true;
+					blocker.reset?.();
+				}}
+			>
+				<p>Vos annotations non enregistrées seront perdues.</p>
+			</ConfirmDialog>
 			{pdf && isPresenting && (
 				<PdfPresentation
 					pdf={pdf}

@@ -215,14 +215,32 @@ describe('pdfRenderer', () => {
 				'Échéance du contrat\nde location, échéance\n',
 			);
 			expect(pageText.quads).toHaveLength(pageText.text.length * 8);
-			const lines = textLayerLines(pageText);
-			expect(lines).toHaveLength(2);
-			expect(lines[0]).toMatchObject({ text: 'Échéance du contrat', x: 72 });
-			expect(lines[0].angle).toBeCloseTo(0);
-			expect(lines[0].width).toBeGreaterThan(150);
-			expect(lines[0].height).toBeGreaterThan(15);
+			// Un morceau par mot, à sa position exacte : la sélection affichée
+			// tombe sur les mots.
+			const runs = textLayerLines(pageText);
+			expect(runs.map((run) => run.text)).toEqual([
+				'Échéance ',
+				'du ',
+				'contrat',
+				'de ',
+				'location, ',
+				'échéance',
+			]);
+			expect(runs.map((run) => run.isLineEnd)).toEqual([
+				false,
+				false,
+				true,
+				false,
+				false,
+				true,
+			]);
+			expect(runs[0]).toMatchObject({ start: 0, x: 72 });
+			expect(runs[1].start).toBe('Échéance '.length);
+			expect(runs[1].x).toBeGreaterThan(runs[0].x + 80);
+			expect(runs[0].angle).toBeCloseTo(0);
+			expect(runs[0].height).toBeGreaterThan(15);
 			// La deuxième ligne est 30 points plus bas (y vers le bas).
-			expect(lines[1].y - lines[0].y).toBeCloseTo(30, 0);
+			expect(runs[3].y - runs[0].y).toBeCloseTo(30, 0);
 			expect(extractPageText(document, 1)).toMatchObject({
 				text: '',
 				lines: [],
@@ -299,5 +317,17 @@ describe('pdfRenderer', () => {
 		expect(textLayerLines(pageText)).toEqual([]);
 		const [line] = textLayerLines({ ...pageText, lines: lines.slice(0, 1) });
 		expect(line).toMatchObject({ text: 'x', width: 0, height: 0, angle: 0 });
+	});
+
+	it('repasse à un morceau par ligne sur une page de dizaines de milliers de mots', () => {
+		const words = 'a '.repeat(25_000);
+		const pageText = {
+			text: `${words}\n`,
+			quads: new Float32Array((words.length + 1) * 8),
+			lines: [{ start: 0, end: words.length }],
+		};
+		const runs = textLayerLines(pageText);
+		expect(runs).toHaveLength(1);
+		expect(runs[0]).toMatchObject({ start: 0, isLineEnd: true });
 	});
 });

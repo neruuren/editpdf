@@ -1,0 +1,98 @@
+/* Une ligne : les outils défilent horizontalement si l'écran est trop
+   étroit (plutôt que trois lignes qui mangent la page), la fin reste. */
+.annotation-toolbar {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	padding: var(--space-1) var(--space-2);
+	padding-inline: max(var(--space-2), env(safe-area-inset-left))
+		max(var(--space-2), env(safe-area-inset-right));
+	border-block-end: 1px solid var(--color-border);
+	background: var(--color-surface);
+}
+
+.annotation-toolbar__main {
+	display: flex;
+	flex: 1 1 auto;
+	align-items: center;
+	gap: var(--space-1) var(--space-3);
+	min-inline-size: 0;
+	overflow-x: auto;
+	scrollbar-width: thin;
+}
+
+/* Téléphone : en bas de l'écran, à portée du pouce (PdfViewer la place
+   après les pages). */
+@media (width < 48rem) {
+	.annotation-toolbar {
+		order: 10;
+		padding-block-end: max(var(--space-1), env(safe-area-inset-bottom));
+		border-block-start: 1px solid var(--color-border);
+		border-block-end: 0;
+	}
+}
+
+.annotation-toolbar__group {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: var(--space-1);
+}
+
+.annotation-toolbar__end {
+	flex: none;
+}
+
+.annotation-toolbar__button {
+	flex: none;
+	gap: var(--space-1);
+	min-inline-size: var(--tap-size);
+	padding-inline: var(--space-2);
+	font-weight: 400;
+	white-space: nowrap;
+}
+
+.annotation-toolbar__button[aria-pressed='true'] {
+	color: var(--color-primary-contrast);
+	background: var(--color-primary);
+}
+
+.annotation-toolbar__danger {
+	color: var(--color-danger);
+}
+
+.annotation-toolbar__save {
+	flex: none;
+	white-space: nowrap;
+}
+
+.annotation-toolbar__select {
+	inline-size: auto;
+}
+
+.annotation-toolbar__svg {
+	inline-size: 1.25rem;
+	block-size: 1.25rem;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+/* Petit écran : les outils n'ont plus que leur icône (le libellé reste
+   pour les lecteurs d'écran). */
+@media (width < 40rem) {
+	.annotation-toolbar__save {
+		padding-inline: var(--space-2);
+	}
+
+	.annotation-toolbar__label {
+		position: absolute;
+		inline-size: 1px;
+		block-size: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
+}

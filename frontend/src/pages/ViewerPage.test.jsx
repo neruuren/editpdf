@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 import App from '../App';
@@ -12,7 +12,10 @@ vi.mock('../utils/pdfEngine', () => ({ openPdf: vi.fn() }));
 
 const SESSION = {
 	status: 200,
-	body: { success: true, data: { username: 'owner' } },
+	body: {
+		success: true,
+		data: { username: 'owner', annotationAuthor: 'Grégory' },
+	},
 };
 
 const RAPPORT = {
@@ -63,6 +66,7 @@ function fakePdf() {
 		getTextLayer: vi.fn(async (index) => [
 			{
 				text: `Texte de la page ${index + 1}`,
+				start: 0,
 				x: 72,
 				y: 72,
 				width: 200,
@@ -102,6 +106,101 @@ function fakePdf() {
 		renderPageJpeg: vi.fn(async () => new Uint8Array([0xff, 0xd8])),
 		unlock: vi.fn(async () => null),
 		close: vi.fn(async () => null),
+		...fakeAnnotations(),
+	};
+}
+
+// Annotations simulées : une note sur la page 1, puis ce que les tests
+// ajoutent. Chaque modification compte dans l'historique.
+function fakeAnnotations() {
+	const pages = new Map([
+		[
+			0,
+			[
+				{
+					id: 7,
+					type: 'Text',
+					rect: [100, 100, 124, 124],
+					color: '#ffeb3b',
+					contents: 'Relire ce passage',
+					author: 'Acrobat',
+					modifiedAt: '2026-03-02T10:00:00.000Z',
+					isLocked: false,
+					canMove: true,
+					canResize: false,
+				},
+			],
+		],
+	]);
+	let position = 0;
+	let nextId = 100;
+	const history = (page) => ({
+		page,
+		canUndo: position > 0,
+		canRedo: false,
+		isDirty: position > 0,
+	});
+	const list = (index) => [...(pages.get(index) ?? [])];
+	return {
+		getAnnotations: vi.fn(async (index) => list(index)),
+		getAnnotationPages: vi.fn(async (from, count) =>
+			[...pages.keys()]
+				.filter((index) => index >= from && index < from + count)
+				.filter((index) => pages.get(index).length > 0)
+				.sort()
+				.map((index) => ({ index, annotations: list(index) })),
+		),
+		createAnnotation: vi.fn(async (index, spec, { author }) => {
+			const id = nextId++;
+			const annotation = {
+				id,
+				type: spec.type,
+				rect: spec.rect ?? [72, 72, 150, 92],
+				rects: spec.from !== undefined ? [[72, 72, 150, 92]] : undefined,
+				color: spec.color,
+				contents: spec.contents ?? '',
+				excerpt: spec.from !== undefined ? 'Texte' : undefined,
+				author,
+				modifiedAt: '2026-10-28T10:00:00.000Z',
+				isLocked: false,
+				canMove: spec.type === 'Text' || spec.type === 'FreeText',
+				canResize: spec.type === 'FreeText',
+			};
+			pages.set(index, [...list(index), annotation]);
+			position += 1;
+			return { id, ...history(index) };
+		}),
+		updateAnnotation: vi.fn(async (index, id, changes) => {
+			pages.set(
+				index,
+				list(index).map((item) =>
+					item.id === id ? { ...item, ...changes } : item,
+				),
+			);
+			position += 1;
+			return history(index);
+		}),
+		deleteAnnotation: vi.fn(async (index, id) => {
+			pages.set(
+				index,
+				list(index).filter((item) => item.id !== id),
+			);
+			position += 1;
+			return history(index);
+		}),
+		removeMarkup: vi.fn(async (index) => {
+			position += 1;
+			return { count: 1, ...history(index) };
+		}),
+		undo: vi.fn(async () => {
+			position = Math.max(0, position - 1);
+			return { ...history(null), canRedo: true };
+		}),
+		redo: vi.fn(async () => {
+			position += 1;
+			return history(null);
+		}),
+		save: vi.fn(async () => new Uint8Array([0x25, 0x50, 0x44, 0x46])),
 	};
 }
 
@@ -485,5 +584,324 @@ describe('ViewerPage', () => {
 		expect(
 			screen.getAllByRole('button', { name: /^Page \d+$/ }).length,
 		).toBeLessThan(20);
+	});
+});
+
+// Bulle d'une note (popover) : jsdom n'a pas l'API Popover et la tient
+// pour masquée, sans nom accessible calculé ; on la retrouve par son libellé.
+function findBubble(name) {
+	return waitFor(() => {
+		const bubble = screen
+			.getAllByRole('dialog', { hidden: true })
+			.find((element) => element.getAttribute('aria-label') === name);
+		if (!bubble) throw new Error(`Bulle « ${name} » absente`);
+		return bubble;
+	});
+}
+
+describe('ViewerPage : annotations', () => {
+	// Page 1 affichée, son calque de texte et ses annotations lus.
+	async function openAnnotated(extra) {
+		const opened = await openViewer({ ...RAPPORT, lastPage: null }, extra);
+		const page = screen.getByRole('group', { name: 'Page 1 sur 3' });
+		await within(page).findByText('Texte de la page 1');
+		return { ...opened, page };
+	}
+
+	async function startAnnotating() {
+		await userEvent.click(screen.getByRole('button', { name: 'Annoter' }));
+		return screen.getByRole('toolbar', { name: 'Annotations' });
+	}
+
+	it('ouvre le texte d’une note du PDF, en lecture seule hors du mode annotation', async () => {
+		const { page } = await openAnnotated();
+		await userEvent.click(
+			await within(page).findByRole('button', {
+				name: 'Note de Acrobat : Relire ce passage',
+			}),
+		);
+		const bubble = await findBubble('Note de Acrobat');
+		expect(within(bubble).getByText('Relire ce passage')).toBeInTheDocument();
+		expect(within(bubble).queryByRole('textbox', { hidden: true })).toBeNull();
+	});
+
+	it('surligne la sélection de texte depuis la barre qui apparaît', async () => {
+		const { pdf, page } = await openAnnotated();
+		const line = within(page).getByText('Texte de la page 1');
+		const selection = window.getSelection();
+		const range = document.createRange();
+		range.setStart(line.firstChild, 6);
+		range.setEnd(line.firstChild, 8);
+		selection.removeAllRanges();
+		selection.addRange(range);
+		fireEvent(document, new Event('selectionchange'));
+
+		const bar = await screen.findByRole('toolbar', {
+			name: 'Texte sélectionné',
+		});
+		await userEvent.click(within(bar).getByRole('radio', { name: 'Vert' }));
+		await userEvent.click(
+			within(bar).getByRole('button', { name: 'Souligner' }),
+		);
+		expect(pdf.createAnnotation).toHaveBeenCalledWith(
+			0,
+			{ type: 'Underline', from: 6, to: 7, color: '#66bb6a' },
+			{ author: 'Grégory' },
+		);
+		await waitFor(() =>
+			expect(
+				screen.queryByRole('toolbar', { name: 'Texte sélectionné' }),
+			).toBeNull(),
+		);
+	});
+
+	it('retire l’effet du texte sélectionné depuis la barre', async () => {
+		const { pdf, page } = await openAnnotated();
+		const line = within(page).getByText('Texte de la page 1');
+		const range = document.createRange();
+		range.setStart(line.firstChild, 0);
+		range.setEnd(line.firstChild, 5);
+		window.getSelection().removeAllRanges();
+		window.getSelection().addRange(range);
+		fireEvent(document, new Event('selectionchange'));
+		const bar = await screen.findByRole('toolbar', {
+			name: 'Texte sélectionné',
+		});
+		await userEvent.click(within(bar).getByRole('button', { name: 'Retirer' }));
+		expect(pdf.removeMarkup).toHaveBeenCalledWith(0, 0, 4);
+	});
+
+	it('pose une note avec son texte, puis annule et rétablit', async () => {
+		const { pdf, page } = await openAnnotated();
+		const toolbar = await startAnnotating();
+		await userEvent.click(
+			within(toolbar).getByRole('button', { name: 'Note' }),
+		);
+		fireEvent.click(page, { clientX: 200, clientY: 300 });
+		await waitFor(() =>
+			expect(pdf.createAnnotation).toHaveBeenCalledWith(
+				0,
+				expect.objectContaining({ type: 'Text', color: '#ffeb3b' }),
+				{ author: 'Grégory' },
+			),
+		);
+		const bubble = await findBubble('Note de Grégory');
+		await userEvent.type(
+			within(bubble).getByRole('textbox', { hidden: true }),
+			'À vérifier',
+		);
+		await userEvent.click(
+			within(bubble).getByRole('button', { name: 'Fermer', hidden: true }),
+		);
+		expect(pdf.updateAnnotation).toHaveBeenCalledWith(0, 100, {
+			contents: 'À vérifier',
+		});
+
+		expect(
+			screen.getByRole('button', {
+				name: 'Annoter (modifications non enregistrées)',
+			}),
+		).toBeInTheDocument();
+		await userEvent.click(
+			within(toolbar).getByRole('button', { name: 'Annuler' }),
+		);
+		expect(pdf.undo).toHaveBeenCalled();
+		await userEvent.keyboard('{Control>}{Shift>}z{/Shift}{/Control}');
+		expect(pdf.redo).toHaveBeenCalled();
+	});
+
+	it('pose un texte libre à l’endroit touché', async () => {
+		const { pdf, page } = await openAnnotated();
+		const toolbar = await startAnnotating();
+		await userEvent.click(
+			within(toolbar).getByRole('button', { name: 'Texte' }),
+		);
+		await userEvent.selectOptions(
+			within(toolbar).getByLabelText('Taille du texte'),
+			'24 pt',
+		);
+		fireEvent.click(page, { clientX: 96, clientY: 192 });
+		const input = await screen.findByLabelText('Texte de l’annotation');
+		await userEvent.type(input, 'Bon pour accord');
+		fireEvent.blur(input);
+		await waitFor(() =>
+			expect(pdf.createAnnotation).toHaveBeenCalledWith(
+				0,
+				expect.objectContaining({
+					type: 'FreeText',
+					contents: 'Bon pour accord',
+					fontSize: 24,
+					color: '#e53935',
+				}),
+				{ author: 'Grégory' },
+			),
+		);
+		// 96 px CSS = 72 points à 100 %.
+		const [{ rect }] = pdf.createAnnotation.mock.calls.at(-1).slice(1);
+		expect(rect[0]).toBeCloseTo(72);
+		expect(rect[1]).toBeCloseTo(144);
+	});
+
+	it('sélectionne une annotation, la recolore et la supprime', async () => {
+		const { pdf, page } = await openAnnotated();
+		const toolbar = await startAnnotating();
+		await userEvent.click(
+			await within(page).findByRole('button', {
+				name: 'Note de Acrobat : Relire ce passage',
+			}),
+		);
+		// La bulle de la note s'ouvre aussi ; on la referme.
+		await userEvent.click(
+			within(await findBubble('Note de Acrobat')).getByRole('button', {
+				name: 'Fermer',
+				hidden: true,
+			}),
+		);
+		await userEvent.click(
+			within(toolbar).getByRole('radio', { name: 'Rouge' }),
+		);
+		expect(pdf.updateAnnotation).toHaveBeenCalledWith(0, 7, {
+			color: '#e53935',
+		});
+		await userEvent.click(
+			within(toolbar).getByRole('button', { name: 'Supprimer' }),
+		);
+		expect(pdf.deleteAnnotation).toHaveBeenCalledWith(0, 7);
+	});
+
+	it('liste les annotations du document dans le panneau', async () => {
+		await openAnnotated();
+		await userEvent.click(screen.getByRole('button', { name: /Navigation/ }));
+		await userEvent.click(screen.getByRole('button', { name: 'Annotations' }));
+		const nav = screen.getByRole('navigation', {
+			name: 'Navigation dans le document',
+		});
+		expect(
+			await within(nav).findByRole('heading', { name: 'Page 1' }),
+		).toBeInTheDocument();
+		const item = within(nav).getByRole('button', { name: /^Note/ });
+		expect(item).toHaveTextContent('Relire ce passage');
+		expect(item).toHaveTextContent('Acrobat');
+	});
+
+	it('enregistre les annotations en nouvelle révision, sans retélécharger le PDF', async () => {
+		const saved = { ...RAPPORT, lastPage: null, currentRevision: 1 };
+		let body;
+		const { pdf, page, fetchMock } = await openAnnotated({
+			'POST /api/v1/documents/rapport/revisions': (options) => {
+				body = options.body;
+				return ok(saved, 201);
+			},
+		});
+		const toolbar = await startAnnotating();
+		const saveButton = within(toolbar).getByRole('button', {
+			name: 'Enregistrer',
+		});
+		expect(saveButton).toBeDisabled();
+		await userEvent.click(
+			within(toolbar).getByRole('button', { name: 'Note' }),
+		);
+		fireEvent.click(page, { clientX: 10, clientY: 10 });
+		await waitFor(() => expect(saveButton).toBeEnabled());
+		await userEvent.click(
+			within(await findBubble('Note de Grégory')).getByRole('button', {
+				name: 'Fermer',
+				hidden: true,
+			}),
+		);
+
+		openPdf.mockClear();
+		await userEvent.keyboard('{Control>}s{/Control}');
+		await waitFor(() => expect(openPdf).toHaveBeenCalled());
+		expect(pdf.save).toHaveBeenCalled();
+		expect(body.get('origin')).toBe('annotate');
+		expect(body.get('baseRevision')).toBe('0');
+		expect(body.get('file').name).toBe('annotations.pdf');
+		// Le PDF enregistré est rouvert tel quel : pas de nouveau téléchargement.
+		expect(
+			fetchMock.mock.calls.filter(([url]) => url.includes('/file')),
+		).toHaveLength(1);
+		expect(screen.getByRole('button', { name: 'Annoter' })).toBeInTheDocument();
+	});
+
+	it('propose d’enregistrer quand même si le document a changé entre-temps', async () => {
+		const bodies = [];
+		const { page } = await openAnnotated({
+			'POST /api/v1/documents/rapport/revisions': (options) => {
+				bodies.push(options.body);
+				return options.body.get('baseRevision')
+					? {
+							status: 409,
+							body: {
+								success: false,
+								error: 'Le document a changé depuis son ouverture',
+								data: { currentRevision: 1 },
+							},
+						}
+					: ok({ ...RAPPORT, currentRevision: 2 }, 201);
+			},
+		});
+		const toolbar = await startAnnotating();
+		await userEvent.click(
+			within(toolbar).getByRole('button', { name: 'Note' }),
+		);
+		fireEvent.click(page, { clientX: 10, clientY: 10 });
+		await userEvent.click(
+			within(await findBubble('Note de Grégory')).getByRole('button', {
+				name: 'Fermer',
+				hidden: true,
+			}),
+		);
+		await userEvent.click(
+			within(toolbar).getByRole('button', { name: 'Enregistrer' }),
+		);
+		const dialog = await screen.findByRole('dialog', {
+			name: 'Le document a changé',
+		});
+		await userEvent.click(
+			within(dialog).getByRole('button', { name: 'Enregistrer quand même' }),
+		);
+		await waitFor(() => expect(bodies).toHaveLength(2));
+		expect(bodies[1].get('baseRevision')).toBeNull();
+	});
+
+	it('demande confirmation avant de quitter avec des annotations non enregistrées', async () => {
+		const { page } = await openAnnotated();
+		const toolbar = await startAnnotating();
+		await userEvent.click(
+			within(toolbar).getByRole('button', { name: 'Note' }),
+		);
+		fireEvent.click(page, { clientX: 10, clientY: 10 });
+		await userEvent.click(
+			within(await findBubble('Note de Grégory')).getByRole('button', {
+				name: 'Fermer',
+				hidden: true,
+			}),
+		);
+
+		await userEvent.click(
+			screen.getByRole('link', { name: 'Retour à la bibliothèque' }),
+		);
+		const dialog = await screen.findByRole('dialog', {
+			name: 'Quitter sans enregistrer ?',
+		});
+		await userEvent.click(
+			within(dialog).getByRole('button', { name: 'Annuler' }),
+		);
+		expect(screen.getByLabelText('Pages du document')).toBeInTheDocument();
+
+		await userEvent.click(
+			screen.getByRole('link', { name: 'Retour à la bibliothèque' }),
+		);
+		await userEvent.click(
+			within(
+				await screen.findByRole('dialog', {
+					name: 'Quitter sans enregistrer ?',
+				}),
+			).getByRole('button', { name: 'Quitter sans enregistrer' }),
+		);
+		await waitFor(() =>
+			expect(screen.queryByLabelText('Pages du document')).toBeNull(),
+		);
 	});
 });

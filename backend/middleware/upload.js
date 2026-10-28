@@ -23,45 +23,57 @@ const MULTER_ERRORS = {
 	],
 	LIMIT_FILE_COUNT: ['Un seul fichier par envoi', 400],
 	LIMIT_PART_COUNT: ['Un seul fichier par envoi', 400],
-	LIMIT_FIELD_COUNT: ['Champ inattendu (attendu : file)', 400],
+	LIMIT_FIELD_COUNT: ['Champ inattendu', 400],
+	LIMIT_FIELD_VALUE: ['Champ trop long', 400],
 	LIMIT_UNEXPECTED_FILE: ['Champ de fichier inattendu (attendu : file)', 400],
 };
 
 // 🔹 Sur disque et non en mémoire : un PDF peut peser 100 Mo.
-// Nom généré côté serveur, jamais celui du client.
-const uploader = multer({
-	storage: multer.diskStorage({
-		// Fonction plutôt que chaîne : multer ne crée le dossier qu'une fois au
-		// démarrage, alors que tmp/ peut être vidé ou supprimé ensuite.
-		destination: (req, file, cb) => {
-			fs.mkdir(TMP_DIR, { recursive: true }).then(() => cb(null, TMP_DIR), cb);
+// Nom généré côté serveur, jamais celui du client. `fields` : nombre de
+// champs texte acceptés à côté du fichier (courts : 32 octets chacun).
+const _uploader = (fields) =>
+	multer({
+		storage: multer.diskStorage({
+			// Fonction plutôt que chaîne : multer ne crée le dossier qu'une fois au
+			// démarrage, alors que tmp/ peut être vidé ou supprimé ensuite.
+			destination: (req, file, cb) => {
+				fs.mkdir(TMP_DIR, { recursive: true }).then(
+					() => cb(null, TMP_DIR),
+					cb,
+				);
+			},
+			filename: (req, file, cb) => cb(null, `${crypto.randomUUID()}.pdf`),
+		}),
+		// Les navigateurs envoient le nom du fichier en UTF-8 brut ; le défaut
+		// (latin1) changerait « Relevé.pdf » en « RelevÃ©.pdf ».
+		defParamCharset: 'utf8',
+		limits: {
+			fileSize: env.uploadMaxSizeMb * 1024 * 1024,
+			files: 1,
+			fields,
+			fieldSize: 32,
+			parts: fields + 1,
 		},
-		filename: (req, file, cb) => cb(null, `${crypto.randomUUID()}.pdf`),
-	}),
-	// Les navigateurs envoient le nom du fichier en UTF-8 brut ; le défaut
-	// (latin1) changerait « Relevé.pdf » en « RelevÃ©.pdf ».
-	defParamCharset: 'utf8',
-	limits: {
-		fileSize: env.uploadMaxSizeMb * 1024 * 1024,
-		files: 1,
-		fields: 0,
-		parts: 1,
-	},
-	fileFilter: (req, file, cb) => {
-		const isPdf =
-			path.extname(file.originalname).toLowerCase() === '.pdf' &&
-			ACCEPTED_MIME_TYPES.has(file.mimetype);
-		cb(
-			isPdf
-				? null
-				: new ErrorResponse('Seuls les fichiers PDF sont acceptés', 415),
-			isPdf,
-		);
-	},
-}).single('file');
+		fileFilter: (req, file, cb) => {
+			const isPdf =
+				path.extname(file.originalname).toLowerCase() === '.pdf' &&
+				ACCEPTED_MIME_TYPES.has(file.mimetype);
+			cb(
+				isPdf
+					? null
+					: new ErrorResponse('Seuls les fichiers PDF sont acceptés', 415),
+				isPdf,
+			);
+		},
+	}).single('file');
+
+// Import : le fichier seul. Nouvelle révision : « origin » et
+// « baseRevision » en plus (revisionService).
+const importUploader = _uploader(0);
+const revisionUploader = _uploader(2);
 
 // Convertit les erreurs multer en ErrorResponse (message clair + bon code).
-exports.uploadPdf = (req, res, next) => {
+const _handle = (uploader) => (req, res, next) => {
 	uploader(req, res, (err) => {
 		if (err instanceof multer.MulterError) {
 			const [message, status] = MULTER_ERRORS[err.code] ?? [
@@ -79,3 +91,6 @@ exports.uploadPdf = (req, res, next) => {
 		next(err);
 	});
 };
+
+exports.uploadPdf = _handle(importUploader);
+exports.uploadRevisionPdf = _handle(revisionUploader);

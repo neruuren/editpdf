@@ -7,8 +7,17 @@ const RENDER_DELAY_MS = 80;
 
 // 🔹 Miniature d'une page dans le panneau latéral, montée par ViewerSidebar
 // seulement quand elle est proche de la partie visible de la liste.
-// Cliquer amène la page à l'écran.
-function PdfThumbnail({ pdf, index, rotation, isCurrent, onSelect, style }) {
+// Cliquer amène la page à l'écran. `version` change quand une annotation
+// de la page a changé : elle est redessinée.
+function PdfThumbnail({
+	pdf,
+	index,
+	rotation,
+	version,
+	isCurrent,
+	onSelect,
+	style,
+}) {
 	const canvasRef = useRef(null);
 	const size = thumbnailSize(pdf.pages[index], rotation);
 
@@ -36,7 +45,7 @@ function PdfThumbnail({ pdf, index, rotation, isCurrent, onSelect, style }) {
 			clearTimeout(timer);
 			controller.abort();
 		};
-	}, [pdf, index, size.scale, rotation]);
+	}, [pdf, index, size.scale, rotation, version]);
 
 	return (
 		<button

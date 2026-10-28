@@ -15,7 +15,7 @@ describe('POST /api/auth/login', () => {
 		expect(response.status).toBe(200);
 		expect(response.body).toEqual({
 			success: true,
-			data: { username: 'owner' },
+			data: { username: 'owner', annotationAuthor: 'owner' },
 		});
 		const cookie = sessionCookie(response);
 		expect(cookie).toBeDefined();
@@ -58,7 +58,10 @@ describe('GET /api/auth/me', () => {
 		await agent.post('/api/auth/login').send(VALID);
 		const response = await agent.get('/api/auth/me');
 		expect(response.status).toBe(200);
-		expect(response.body.data).toEqual({ username: 'owner' });
+		expect(response.body.data).toEqual({
+			username: 'owner',
+			annotationAuthor: 'owner',
+		});
 	});
 });
 

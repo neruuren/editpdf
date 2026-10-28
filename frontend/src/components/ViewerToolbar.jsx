@@ -16,9 +16,10 @@ const PRESET_ZOOMS = [
 // 🔹 Barre d'outils de la visionneuse : retour à la bibliothèque, titre,
 // navigation (page précédente / suivante, aller à la page), zoom (crans,
 // largeur, page entière, pourcentages), recherche, signet de la page
-// affichée, panneaux (navigation, informations) et un menu « Plus
-// d'actions » (rotation d'affichage, présentation, impression,
-// téléchargement ; popover natif). `zoom` : 'width' | 'page' | facteur ;
+// affichée, mode annotation (`isAnnotating`, la barre AnnotationToolbar),
+// panneaux (navigation, informations) et un menu « Plus d'actions »
+// (rotation d'affichage, présentation, impression, téléchargement ;
+// popover natif). `zoom` : 'width' | 'page' | facteur ;
 // `scale` : échelle effective, pour afficher le pourcentage.
 function ViewerToolbar({
 	document,
@@ -31,6 +32,8 @@ function ViewerToolbar({
 	isInfoOpen,
 	isSearchOpen,
 	isBookmarked,
+	isAnnotating,
+	hasUnsavedChanges,
 	onGoToPage,
 	onZoomChange,
 	onZoomStep,
@@ -39,6 +42,7 @@ function ViewerToolbar({
 	onToggleInfo,
 	onToggleSearch,
 	onToggleBookmark,
+	onToggleAnnotate,
 	onPresent,
 	onPrint,
 }) {
@@ -205,6 +209,28 @@ function ViewerToolbar({
 							onClick={onToggleBookmark}
 						>
 							<span aria-hidden="true">{isBookmarked ? '★' : '☆'}</span>
+						</button>
+						<button
+							type="button"
+							className="button button--ghost viewer-toolbar__icon"
+							aria-label={
+								hasUnsavedChanges
+									? 'Annoter (modifications non enregistrées)'
+									: 'Annoter'
+							}
+							aria-pressed={isAnnotating}
+							onClick={onToggleAnnotate}
+							data-unsaved={hasUnsavedChanges || undefined}
+						>
+							{/* Crayon */}
+							<svg
+								className="viewer-toolbar__svg"
+								viewBox="0 0 24 24"
+								aria-hidden="true"
+							>
+								<path d="M4 20l1-5L16 4l4 4L9 19z" />
+								<path d="M13.5 6.5l4 4" />
+							</svg>
 						</button>
 					</>
 				)}

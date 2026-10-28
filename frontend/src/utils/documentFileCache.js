@@ -74,6 +74,12 @@ export function getDocumentFile(id, revision, { onProgress } = {}) {
 	return promise;
 }
 
+// 🔹 PDF que la visionneuse vient d'enregistrer (annotations) : il devient
+// la révision `revision` sans être retéléchargé.
+export function putDocumentFile(id, revision, data) {
+	_remember(_key(id, revision), Promise.resolve(data));
+}
+
 // 🔹 Mots de passe des PDF protégés, saisis dans la visionneuse : gardés
 // le temps de la session, dans cet onglet seulement (jamais envoyés au
 // serveur ni écrits sur le disque), pour ne pas les redemander à chaque

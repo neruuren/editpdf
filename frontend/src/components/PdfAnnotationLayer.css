@@ -1,0 +1,72 @@
+/* Au-dessus du calque de texte, dans le même repère (pageLayerTransform).
+   Transparent aux clics, sauf ses boutons : la sélection du texte passe. */
+.pdf-annotation-layer {
+	position: absolute;
+	inset-block-start: 0;
+	inset-inline-start: 0;
+	transform-origin: 0 0;
+	/* Rien ne déborde de la page, même un rectangle annoncé démesuré. */
+	overflow: clip;
+	pointer-events: none;
+	direction: ltr;
+}
+
+.pdf-annotation-layer__button {
+	position: absolute;
+	padding: 0;
+	border: 0;
+	border-radius: 2px;
+	background: transparent;
+	cursor: pointer;
+	pointer-events: auto;
+	touch-action: none;
+}
+
+/* Une note est petite : sa zone tactile déborde de l'icône. */
+.pdf-annotation-layer__button[data-type='Text']::before {
+	content: '';
+	position: absolute;
+	inset: -8px;
+}
+
+.pdf-annotation-layer__button[data-movable] {
+	cursor: move;
+}
+
+.pdf-annotation-layer__selection {
+	position: absolute;
+	outline: 2px dashed #2f6fdb;
+	outline-offset: 2px;
+	border-radius: 2px;
+	pointer-events: none;
+}
+
+.pdf-annotation-layer__handle {
+	position: absolute;
+	inline-size: 14px;
+	block-size: 14px;
+	margin-inline-start: -7px;
+	margin-block-start: -7px;
+	border: 2px solid #ffffff;
+	border-radius: 50%;
+	background: #2f6fdb;
+	cursor: nwse-resize;
+	pointer-events: auto;
+	touch-action: none;
+}
+
+.pdf-annotation-layer__handle::before {
+	content: '';
+	position: absolute;
+	inset: -14px;
+}
+
+@media (forced-colors: active) {
+	.pdf-annotation-layer__selection {
+		outline-color: Highlight;
+	}
+
+	.pdf-annotation-layer__handle {
+		background: Highlight;
+	}
+}

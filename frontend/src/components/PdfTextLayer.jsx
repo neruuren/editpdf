@@ -29,8 +29,9 @@ function withStretch(line) {
 	return { ...line, stretch };
 }
 
-// 🔹 Calque posé sur le rendu d'une page : le texte de la page, invisible
-// mais sélectionnable et copiable (sélection native, Ctrl + C, menu du
+// 🔹 Calque posé sur le rendu d'une page : le texte de la page (un
+// morceau par mot, à sa place exacte, étiré à sa largeur), invisible mais
+// sélectionnable et copiable (sélection native, Ctrl + C, menu du
 // téléphone, lecteurs d'écran), et les surlignages des résultats de
 // recherche (`highlights` : [{ rects, isActive }], en points). Le texte
 // n'est demandé au worker qu'une fois la page affichée (`isReady`).
@@ -83,17 +84,23 @@ function PdfTextLayer({
 				<span
 					key={position}
 					className="pdf-text-layer__line"
+					// Sélection → caractères de la page (annotations).
+					data-start={line.start}
 					style={{
 						insetInlineStart: line.x * scale,
 						insetBlockStart: line.y * scale,
 						fontSize: line.height * scale,
+						// Largeur avant étirement : une fois étiré, le morceau couvre
+						// exactement son mot ; ce qui dépasse est coupé, et la sélection
+						// de deux mots voisins ne se chevauche pas.
+						inlineSize: (line.width * scale) / line.stretch,
 						fontFamily: FONT_FAMILY,
 						transform: `rotate(${line.angle}deg) scaleX(${line.stretch})`,
 					}}
 				>
 					{line.text}
 					{/* Fin de ligne : la copie garde les retours à la ligne. */}
-					<br />
+					{line.isLineEnd && <br />}
 				</span>
 			))}
 		</div>

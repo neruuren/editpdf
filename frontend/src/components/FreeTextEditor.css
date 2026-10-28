@@ -1,0 +1,23 @@
+/* Même police que l'annotation enregistrée (Helvetica, police standard
+   des lecteurs PDF) : ce qui est saisi ressemble à ce qui sera dessiné. */
+.free-text-editor {
+	position: absolute;
+	box-sizing: content-box;
+	margin: 0;
+	padding: 2px;
+	border: 1px dashed #2f6fdb;
+	border-radius: 2px;
+	/* Page blanche : cache le texte d'origine pendant sa modification. */
+	background: #ffffff;
+	font-family: Helvetica, Arial, sans-serif;
+	line-height: 1.15;
+	white-space: pre;
+	overflow: hidden;
+	resize: none;
+	field-sizing: content;
+	pointer-events: auto;
+}
+
+.free-text-editor:focus-visible {
+	outline-offset: 0;
+}

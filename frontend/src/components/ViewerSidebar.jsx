@@ -1,4 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import AnnotationList from './AnnotationList';
 import BookmarkList from './BookmarkList';
 import OutlineList from './OutlineList';
 import PdfThumbnail from './PdfThumbnail';
@@ -13,12 +14,14 @@ const TABS = [
 	{ value: 'thumbnails', label: 'Miniatures' },
 	{ value: 'outline', label: 'Sommaire' },
 	{ value: 'bookmarks', label: 'Signets' },
+	{ value: 'annotations', label: 'Annotations' },
 	{ value: 'results', label: 'Résultats' },
 ];
 
 // 🔹 Panneau latéral de la visionneuse, en onglets (`tab`, choisi par la
-// visionneuse) : miniatures des pages, sommaire du PDF, signets personnels
-// et résultats de la recherche (seulement pendant une recherche). Comme
+// visionneuse) : miniatures des pages, sommaire du PDF, signets
+// personnels, annotations du document et résultats de la recherche
+// (seulement pendant une recherche). Comme
 // les pages, seules les miniatures proches de la partie visible de la
 // liste existent dans le DOM. `onSelectPage(index)` amène une page à
 // l'écran.
@@ -35,6 +38,10 @@ function ViewerSidebar({
 	search,
 	activeResult,
 	onSelectResult,
+	annotationList,
+	selectedAnnotation,
+	onSelectAnnotation,
+	pageVersion,
 }) {
 	const hasOutline = pdf.outline.length > 0;
 	const contentRef = useRef(null);
@@ -103,6 +110,7 @@ function ViewerSidebar({
 								pdf={pdf}
 								index={index}
 								rotation={rotation}
+								version={pageVersion?.(index)}
 								isCurrent={index === currentPage}
 								onSelect={onSelectPage}
 								style={{
@@ -127,6 +135,13 @@ function ViewerSidebar({
 						onSelectPage={onSelectPage}
 						onRename={onRenameBookmark}
 						onRemove={onRemoveBookmark}
+					/>
+				)}
+				{tab === 'annotations' && (
+					<AnnotationList
+						list={annotationList}
+						selected={selectedAnnotation}
+						onSelect={onSelectAnnotation}
 					/>
 				)}
 				{tab === 'results' && search && (

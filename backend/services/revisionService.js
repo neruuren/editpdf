@@ -90,13 +90,47 @@ async function _addRevision(
 	return Document.findById(id);
 }
 
+// Origines qu'un envoi peut déclarer : une nouvelle version (fiche) ou un
+// enregistrement de la visionneuse (annotations).
+const UPLOAD_ORIGINS = new Set(['upload', 'annotate']);
+
+function _parseOrigin(value) {
+	if (value === undefined || value === '') return 'upload';
+	if (!UPLOAD_ORIGINS.has(value)) {
+		throw new ErrorResponse('Origine invalide', 400);
+	}
+	return value;
+}
+
+// Révision ouverte par le client quand il a commencé ses modifications ;
+// absente = pas de contrôle (« Enregistrer quand même »).
+function _parseBaseRevision(value) {
+	if (value === undefined || value === '') return null;
+	if (typeof value !== 'string' || !/^\d{1,9}$/.test(value)) {
+		throw new ErrorResponse('Révision de départ invalide', 400);
+	}
+	return Number(value);
+}
+
 // 🔹 Nouvelle version envoyée (multer, fichier dans tmp/) : un PDF modifié
-// ailleurs devient la révision suivante. Une version identique à une
-// révision existante est refusée : pour y revenir, on la restaure.
-function uploadRevision(id, upload) {
+// ailleurs, ou annoté dans la visionneuse (`origin` 'annotate'), devient la
+// révision suivante. Une version identique à une révision existante est
+// refusée : pour y revenir, on la restaure. Avec `baseRevision`, l'envoi
+// est refusé (409, `data.currentRevision`) si la révision courante a changé
+// depuis : les modifications partaient d'une autre version.
+function uploadRevision(id, upload, { origin, baseRevision } = {}) {
 	return serialize(async () => {
 		try {
 			const document = _findDocument(id);
+			const parsedOrigin = _parseOrigin(origin);
+			const base = _parseBaseRevision(baseRevision);
+			if (base !== null && base !== document.currentRevision) {
+				throw new ErrorResponse(
+					'Le document a changé depuis son ouverture',
+					409,
+					{ currentRevision: document.currentRevision },
+				);
+			}
 			const data = await fs.readFile(upload.path);
 			const hash = crypto.createHash('sha256').update(data).digest('hex');
 			const existing = Revision.findNumberByHash(id, hash);
@@ -120,7 +154,7 @@ function uploadRevision(id, upload) {
 				filePath,
 				data,
 				hash,
-				origin: 'upload',
+				origin: parsedOrigin,
 				restoredFrom: null,
 			});
 		} finally {

@@ -16,3 +16,14 @@
 .pdf-pages__content {
 	position: relative;
 }
+
+/* Outil Note ou Texte : un clic pose l'annotation, le texte ne se
+   sélectionne plus. */
+.pdf-pages:is([data-tool='note'], [data-tool='text']) .pdf-page-view {
+	cursor: crosshair;
+}
+
+.pdf-pages:is([data-tool='note'], [data-tool='text']) .pdf-text-layer {
+	pointer-events: none;
+	user-select: none;
+}

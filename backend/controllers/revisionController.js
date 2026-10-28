@@ -15,7 +15,8 @@ exports.getRevisions = (req, res) => {
 		.json({ success: true, count: revisions.length, data: revisions });
 };
 
-// @desc    Envoyer une nouvelle version du document (multipart, champ « file »)
+// @desc    Envoyer une nouvelle version du document (multipart, champ « file » ;
+//          facultatifs : « origin » upload | annotate, « baseRevision »)
 // @route   POST /api/v1/documents/:id/revisions
 // @access  Private
 exports.uploadRevision = asyncHandler(async (req, res, next) => {
@@ -23,6 +24,7 @@ exports.uploadRevision = asyncHandler(async (req, res, next) => {
 	const document = await revisionService.uploadRevision(
 		req.params.id,
 		req.file,
+		{ origin: req.body?.origin, baseRevision: req.body?.baseRevision },
 	);
 	res.status(201).json({ success: true, data: document });
 });
