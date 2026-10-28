@@ -1,0 +1,15 @@
+**/node_modules
+frontend/dist
+frontend/dev-dist
+.env
+backend/.env
+backend/data
+backend/__tests__
+backend/jest.*
+.git
+.github
+.husky
+.claude
+docs
+*.md
+npm-debug.log*

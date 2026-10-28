@@ -3,25 +3,31 @@
 	"private": true,
 	"version": "1.0.0",
 	"author": "Grégory Day : gregory.day@etik.com",
-	"license": "MIT",
+	"license": "AGPL-3.0-or-later",
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
 		"build": "vite build",
 		"lint": "eslint .",
 		"preview": "vite preview",
-		"test": "vitest run"
+		"test": "vitest run",
+		"generate-pwa-assets": "pwa-assets-generator"
 	},
 	"dependencies": {
+		"@tanstack/react-query": "^5.105.0",
+		"mupdf": "^1.28.1",
 		"react": "^19.0.0",
-		"react-dom": "^19.0.0"
+		"react-dom": "^19.0.0",
+		"react-router-dom": "^7.18.5"
 	},
 	"devDependencies": {
 		"@eslint/js": "^9.19.0",
 		"@testing-library/jest-dom": "^7.0.1",
 		"@testing-library/react": "^16.3.2",
+		"@testing-library/user-event": "^14.6.8",
 		"@types/react": "^19.0.8",
 		"@types/react-dom": "^19.0.3",
+		"@vite-pwa/assets-generator": "^2.0.0",
 		"@vitejs/plugin-react": "^4.3.4",
 		"eslint": "^9.19.0",
 		"eslint-plugin-react": "^7.37.4",
@@ -30,6 +36,10 @@
 		"globals": "^15.14.0",
 		"jsdom": "^30.0.1",
 		"vite": "^6.1.0",
+		"vite-plugin-pwa": "^2.0.0",
 		"vitest": "^4.1.10"
+	},
+	"allowScripts": {
+		"esbuild": true
 	}
 }

@@ -1,45 +1,52 @@
-# web_node.jsBackend_reactFrontend
+# editpdf
 
-![CI](https://github.com/neruuren/web_node.jsBackend_reactFrontend/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/neruuren/editpdf/actions/workflows/ci.yml/badge.svg)
 
-in production mode, The node.js backend serve the static files of the REACT frontend
+Gestionnaire de PDF **personnel** : bibliothèque de documents, lecture, annotation, édition du texte, organisation des pages, formulaires, OCR, compression, caviardage… pour ne plus dépendre des solutions payantes.
 
-For auto format code with prettier when save file, VScode should have this config in settings.json:
+- **Moteur PDF** : [MuPDF.js](https://mupdfjs.readthedocs.io/) (WebAssembly), dans le navigateur et dans Node ; qpdf, Ghostscript et OCRmyPDF/Tesseract côté serveur.
+- **Stack** : Node 24, Express + SQLite (backend), React 19 + Vite (frontend, PWA installable).
+- **Déploiement** : Docker sur VPS, derrière nginx, sur `pdf.gregory-day.fr`.
+
+> 📌 La documentation de référence (objectif, architecture, conventions, état d'avancement) est dans **[CLAUDE.md](CLAUDE.md)**. Voir aussi [CONTEXT.md](CONTEXT.md) (glossaire), [docs/ROADMAP.md](docs/ROADMAP.md) (fonctionnalités par tranche) et [docs/adr/](docs/adr/) (décisions).
+
+## Démarrage
 
 ```shell
+nvm use                         # Node 24.22.1 (.nvmrc)
+npm install                     # racine, puis backend/ et frontend/ (postinstall)
+cp backend/.env.example backend/.env
+npm run startDev                # backend :3003 + frontend :5173
+```
+
+Pour que VS Code formate avec Prettier à l'enregistrement :
+
+```json
 {
-  "editor.formatOnSave": true,
-  "editor.defaultFormatter": "esbenp.prettier-vscode"
+	"editor.formatOnSave": true,
+	"editor.defaultFormatter": "esbenp.prettier-vscode"
 }
 ```
 
-a pre-commit hook (thanks to Husky) runs `lint-staged` (eslint + prettier on staged files only, fixes are re-staged automatically so no extra commit is needed) then `npm run test:backend`.
+Un hook pre-commit (Husky) lance `lint-staged` (eslint + prettier sur les fichiers indexés) puis `npm run test:backend`. La CI (`.github/workflows/ci.yml`) lance lint, tests et build sur chaque PR et chaque push sur `main`, puis déploie sur le VPS si la variable de dépôt `DEPLOY_ENABLED` vaut `true`.
 
-A GitHub Actions workflow (`.github/workflows/ci.yml`) runs lint, tests and build on every push/PR to `main`.
+## Commandes
 
-## environment variables
+| Commande                                          | Effet                                            |
+| ------------------------------------------------- | ------------------------------------------------ |
+| `npm run clean`                                   | supprime tous les `node_modules` et réinstalle   |
+| `npm run startDev`                                | backend (nodemon) + frontend (Vite) en parallèle |
+| `npm run lint` / `lint:backend` / `lint:frontend` | ESLint                                           |
+| `npm run format`                                  | Prettier sur tout le dépôt                       |
+| `npm run test` / `test:backend` / `test:frontend` | Jest / Vitest                                    |
+| `npm run build`                                   | deps backend de prod + build Vite                |
+| `npm run start`                                   | lance le backend, qui sert aussi `frontend/dist` |
+| `docker compose up -d --build --wait`             | build et démarrage du conteneur (prod)           |
 
-Backend configuration lives in `backend/.env` (copy `backend/.env.example` to get started):
+## Variables d'environnement
 
-`PORT` → _port the backend listens on (default: 5000)_  
-`CORS_ORIGIN` → _origin allowed to call the API (default: http://localhost:5173, the Vite dev server)_
+Toutes sont documentées dans [backend/.env.example](backend/.env.example) : port (3003), stockage (`DATA_DIR`, `DB_FILE`), limite d'upload, rétention des révisions, compte unique et session.
 
-## list of commands :
+## Licence
 
-### development:
-
-`npm clean` → _delete all modules directories (even frontend and backend), then, launch npm install_  
-`npm install` → _after root install, launch automatically backend and frontend install (postinstall)_  
-`npm run startDev` → _launch in 1 time backend and frontend servers_  
-`npm run lint:backend` → _launch linter for backend_  
-`npm run lint:frontend` → _launch linter for frontend_  
-`npm run lint` → _launch linter for both frontend and backend_  
-`npm run format` → _launch prettier_  
-`npm run test:backend` → _run backend tests (Jest)_  
-`npm run test:frontend` → _run frontend tests (Vitest)_  
-`npm run test` → _run both backend and frontend tests_
-
-### production:
-
-`npm run build` → _lit install production dependencies and compile the frontend_  
-`npm run start` → _it launch the backend server_
+[AGPL-3.0-or-later](LICENSE), imposée par MuPDF (voir [ADR 0001](docs/adr/0001-moteur-mupdf-et-licence-agpl.md)).

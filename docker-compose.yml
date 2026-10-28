@@ -1,0 +1,39 @@
+services:
+  editpdf:
+    build: .
+    image: editpdf:latest
+    container_name: editpdf
+    restart: unless-stopped
+    # Loopback uniquement : le reverse proxy HTTPS de l'hôte est le seul point d'entrée.
+    # 3003 car 3000 (webcv), 3001 (ebookReader), 3002 (veilleTechno), 5000 (afterLook)
+    # et 5001 (multiDashboard) sont déjà pris sur ce VPS.
+    ports:
+      - '127.0.0.1:3003:3003'
+    # Valeurs lues dans le .env à côté de ce fichier (jamais commité, voir backend/.env.example).
+    environment:
+      NODE_ENV: production
+      PORT: 3003
+      DATA_DIR: /app/backend/data
+      DB_FILE: ${DB_FILE:-editpdf.sqlite}
+      # Vide = CORS désactivé : le front est servi par la même origine.
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      UPLOAD_MAX_SIZE_MB: ${UPLOAD_MAX_SIZE_MB:-100}
+      REVISIONS_KEEP: ${REVISIONS_KEEP:-20}
+      AUTH_USERNAME: ${AUTH_USERNAME:?AUTH_USERNAME must be set in .env}
+      AUTH_PASSWORD_HASH: ${AUTH_PASSWORD_HASH:?AUTH_PASSWORD_HASH must be set in .env}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      JWT_EXPIRE: ${JWT_EXPIRE:-30d}
+      LOGIN_RATE_LIMIT_MAX: ${LOGIN_RATE_LIMIT_MAX:-5}
+      LOGIN_RATE_LIMIT_WINDOW_MIN: ${LOGIN_RATE_LIMIT_WINDOW_MIN:-15}
+    volumes:
+      # Tout l'état de l'app (base SQLite, PDF, révisions, miniatures) : c'est CE volume à sauvegarder.
+      - editpdf-data:/app/backend/data
+    # Docker garde les logs sans limite par défaut : 3 × 10 Mo au plus.
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+volumes:
+  editpdf-data:

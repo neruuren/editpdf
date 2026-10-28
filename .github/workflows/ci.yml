@@ -1,14 +1,20 @@
-name: CI
+name: CI & Deploy
 
+# PR : lint + tests + build.
+# Push sur main (ou lancement manuel) : la même chose, puis déploiement sur le
+# VPS dans la même exécution, seulement si le CI est vert.
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
+# Une PR mise à jour annule son ancienne exécution ; sur main, on n'annule
+# jamais : ce serait couper un déploiement en cours.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-and-test:
@@ -39,3 +45,61 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  deploy:
+    needs: build-and-test
+    # DEPLOY_ENABLED (variable du dépôt, Settings → Secrets and variables →
+    # Actions → Variables) passe à 'true' seulement quand le VPS est prêt :
+    # secrets SSH, .env, nginx + certificat, DNS. D'ici là, le job est ignoré.
+    if: >-
+      vars.DEPLOY_ENABLED == 'true' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    # Jamais deux déploiements en même temps ; on n'annule pas celui en cours.
+    concurrency:
+      group: deploy
+      cancel-in-progress: false
+
+    steps:
+      - name: 📦 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔐 Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: 🔗 Test SSH connection
+        run: ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "echo SSH ok"
+
+      - name: 🗂 Ensure target folder exists
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "mkdir -p /var/www/editpdf"
+
+      - name: 🚀 Sync files to VPS (rsync)
+        run: |
+          # .env contient les secrets de prod et n'existe pas dans le repo :
+          # à exclure pour ne jamais l'écraser sur le serveur.
+          rsync -avz -e "ssh -o StrictHostKeyChecking=no" \
+            --exclude '.git' \
+            --exclude 'node_modules' \
+            --exclude '.env' \
+            --exclude 'backend/.env' \
+            --exclude 'backend/data' \
+            --exclude 'frontend/dist' \
+            ./ ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/var/www/editpdf/
+
+      - name: 🐳 Build & restart the container
+        run: |
+          # --wait : échoue si le conteneur n'est pas "healthy" (healthcheck /api/health).
+          ssh -o ServerAliveInterval=30 -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} '
+            cd /var/www/editpdf &&
+            docker compose up -d --build --wait --wait-timeout 120
+          '
+
+      - name: 🧹 Clean up dangling images
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} '
+            docker image prune -f
+          '

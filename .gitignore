@@ -10,3 +10,7 @@ npm-debug.log*
 .idea
 .DS_Store
 *.swp
+
+# Variables d'environnement
+.env
+/backend/.env
