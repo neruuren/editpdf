@@ -1,0 +1,30 @@
+.viewer-search-bar {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1);
+	padding: var(--space-1) var(--space-2);
+	padding-inline: max(var(--space-2), env(safe-area-inset-left))
+		max(var(--space-2), env(safe-area-inset-right));
+	border-block-end: 1px solid var(--color-border);
+	background: var(--color-surface);
+}
+
+.viewer-search-bar__input {
+	flex: 1 1 0;
+	min-inline-size: 0;
+	max-inline-size: 24rem;
+}
+
+.viewer-search-bar__status {
+	min-inline-size: 4rem;
+	color: var(--color-text-muted);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+	text-align: center;
+}
+
+.viewer-search-bar__icon {
+	min-inline-size: var(--tap-size);
+	padding-inline: var(--space-2);
+	font-size: var(--font-size-lg);
+}

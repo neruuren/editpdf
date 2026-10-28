@@ -2,12 +2,16 @@ import {
 	POINTS_TO_PX,
 	anchorAt,
 	anchorTop,
+	bookmarkLabel,
 	computeScale,
 	currentPage,
+	firstHitFrom,
 	formatZoom,
 	layoutPages,
 	pageAt,
+	pageLayerTransform,
 	parseStoredZoom,
+	rotatePoint,
 	rotatedSize,
 	stepZoom,
 	visiblePages,
@@ -108,5 +112,64 @@ describe('mise en page', () => {
 		expect(anchor).toEqual({ index: 1, fraction: 0.5 });
 		const doubled = layoutPages([A4, A4, A4], 2, 0);
 		expect(anchorTop(doubled, anchor)).toBe(16 + (1684 + 16) + 842);
+	});
+});
+
+describe('rotatePoint et pageLayerTransform', () => {
+	const page = { width: 100, height: 200 };
+
+	it.each([
+		[0, { x: 10, y: 20 }],
+		[90, { x: 180, y: 10 }],
+		[180, { x: 90, y: 180 }],
+		[270, { x: 20, y: 90 }],
+	])('place un point de la page tournée de %i°', (rotation, expected) => {
+		expect(rotatePoint({ x: 10, y: 20 }, page, rotation)).toEqual(expected);
+	});
+
+	it('donne la transformation CSS du calque de la page', () => {
+		expect(pageLayerTransform(page, 2, 0)).toBeUndefined();
+		expect(pageLayerTransform(page, 2, 90)).toBe(
+			'translate(400px, 0) rotate(90deg)',
+		);
+		expect(pageLayerTransform(page, 2, 180)).toBe(
+			'translate(200px, 400px) rotate(180deg)',
+		);
+		expect(pageLayerTransform(page, 2, 270)).toBe(
+			'translate(0, 200px) rotate(270deg)',
+		);
+	});
+});
+
+describe('bookmarkLabel', () => {
+	const outline = [
+		{
+			title: 'Introduction',
+			page: 0,
+			children: [{ title: 'Contexte', page: 2, children: [] }],
+		},
+	];
+
+	it('préfère le libellé du signet, puis le sommaire, puis « Page n »', () => {
+		expect(bookmarkLabel({ page: 3, label: 'Chiffres' }, outline)).toBe(
+			'Chiffres',
+		);
+		expect(bookmarkLabel({ page: 3, label: null }, outline)).toBe('Contexte');
+		expect(bookmarkLabel({ page: 1, label: null }, outline)).toBe(
+			'Introduction',
+		);
+		expect(bookmarkLabel({ page: 2, label: null }, outline)).toBe('Page 2');
+	});
+});
+
+describe('firstHitFrom', () => {
+	const results = [{ page: 1 }, { page: 4 }, { page: 4 }, { page: 9 }];
+
+	it('trouve le premier résultat à partir d’une page, sinon le premier', () => {
+		expect(firstHitFrom(results, 0)).toBe(0);
+		expect(firstHitFrom(results, 2)).toBe(1);
+		expect(firstHitFrom(results, 9)).toBe(3);
+		expect(firstHitFrom(results, 10)).toBe(0);
+		expect(firstHitFrom([], 0)).toBe(0);
 	});
 });

@@ -136,13 +136,14 @@ function _extractText(document) {
 // Un PDF protégé par mot de passe d'ouverture s'ouvre quand même : on sait
 // compter ses pages, mais ses métadonnées sont chiffrées, d'où null, et sa
 // page 1 ne peut pas être rendue.
+// `maxPages` : au-delà, le PDF est refusé (422) avant tout rendu.
 // `withThumbnail` : ajoute `thumbnail` (JPEG en Buffer, ou null).
 // `withText` : ajoute `pages` (voir _extractText ; vide si protégé).
 // ⚠️ MuPDF est synchrone : le rendu et l'extraction bloquent la boucle
 // d'événements (quelques dizaines de ms par page en général).
 async function inspectPdf(
 	data,
-	{ withThumbnail = false, withText = false } = {},
+	{ withThumbnail = false, withText = false, maxPages = Infinity } = {},
 ) {
 	if (!hasPdfSignature(data)) {
 		throw new ErrorResponse('Ce fichier n’est pas un PDF', 422);
@@ -152,8 +153,15 @@ async function inspectPdf(
 	try {
 		document = mupdf.Document.openDocument(data, 'application/pdf');
 		const needsPassword = document.needsPassword();
+		const pageCount = document.countPages();
+		if (pageCount > maxPages) {
+			throw new ErrorResponse(
+				`Ce PDF a trop de pages (${pageCount}, ${maxPages} au plus)`,
+				422,
+			);
+		}
 		const info = {
-			pageCount: document.countPages(),
+			pageCount,
 			needsPassword,
 			title: needsPassword ? null : _metadata(document, 'info:Title'),
 			author: needsPassword ? null : _metadata(document, 'info:Author'),
@@ -166,7 +174,8 @@ async function inspectPdf(
 			info.pages = needsPassword ? [] : _extractText(document);
 		}
 		return info;
-	} catch {
+	} catch (error) {
+		if (error instanceof ErrorResponse) throw error;
 		throw new ErrorResponse('PDF illisible ou endommagé', 422);
 	} finally {
 		// La mémoire WASM n'est pas libérée par le ramasse-miettes de Node.

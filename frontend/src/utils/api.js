@@ -106,6 +106,18 @@ export const revisionsAPI = {
 		request(`${documentPath(id)}/revisions/${number}`, { method: 'DELETE' }),
 };
 
+// Signets personnels : [{ page (1 = première), label | null, createdAt }].
+export const bookmarksAPI = {
+	list: (id) => request(`${documentPath(id)}/bookmarks`),
+	set: ({ id, page, label = null }) =>
+		request(`${documentPath(id)}/bookmarks/${page}`, {
+			method: 'PUT',
+			body: { label },
+		}),
+	remove: ({ id, page }) =>
+		request(`${documentPath(id)}/bookmarks/${page}`, { method: 'DELETE' }),
+};
+
 const collectionPath = (id) => `/v1/collections/${encodeURIComponent(id)}`;
 
 export const collectionsAPI = {

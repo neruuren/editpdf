@@ -1,0 +1,109 @@
+.print-dialog {
+	inline-size: min(100% - 2 * var(--space-4), 28rem);
+	padding: var(--space-5);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-lg);
+	color: var(--color-text);
+	background: var(--color-surface);
+	box-shadow: var(--shadow);
+}
+
+.print-dialog::backdrop {
+	background: rgb(0 0 0 / 0.45);
+}
+
+.print-dialog__title {
+	margin-block: 0 var(--space-4);
+	font-size: var(--font-size-lg);
+}
+
+.print-dialog__form {
+	display: grid;
+	gap: var(--space-3);
+}
+
+.print-dialog__choices {
+	display: grid;
+	gap: var(--space-2);
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
+.print-dialog__choice {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	min-block-size: var(--tap-size);
+}
+
+.print-dialog__page {
+	inline-size: 5rem;
+	text-align: center;
+}
+
+.print-dialog__hint {
+	margin: 0;
+	font-size: 0.875rem;
+	color: var(--color-text-muted);
+}
+
+.print-dialog__error {
+	margin: 0;
+	color: var(--color-danger);
+}
+
+.print-dialog__progress {
+	display: grid;
+	gap: var(--space-1);
+}
+
+.print-dialog__progress progress {
+	inline-size: 100%;
+	accent-color: var(--color-primary);
+}
+
+.print-dialog__actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: var(--space-2);
+}
+
+/* 🔹 Pages à imprimer : un conteneur posé directement dans <body>, seul
+   visible à l'impression pendant que <body> porte .is-printing-pages (un
+   Ctrl + P ordinaire n'est pas touché). Une image par page, ajustée à la
+   feuille sans marge. Pas de page nommée en paysage : Chromium garde les
+   unités vh du format par défaut, l'image débordait sur une page blanche ;
+   l'orientation se choisit dans la boîte d'impression. */
+.print-pages {
+	display: none;
+}
+
+@page print-page {
+	margin: 0;
+}
+
+@media print {
+	body.is-printing-pages > :not(.print-pages) {
+		display: none !important;
+	}
+
+	.print-pages {
+		display: block;
+	}
+
+	.print-pages__page {
+		display: block;
+		inline-size: 100vw;
+		block-size: 100vh;
+		object-fit: contain;
+		break-inside: avoid;
+		page: print-page;
+	}
+
+	.print-pages__page:not(:last-child) {
+		break-after: page;
+	}
+}

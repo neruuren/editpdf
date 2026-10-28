@@ -171,3 +171,63 @@ export function anchorAt(layout, y) {
 export function anchorTop(layout, { index, fraction }) {
 	return layout.tops[index] + fraction * layout.heights[index];
 }
+
+// 🔹 Point de la page (en points depuis son coin haut gauche, avant la
+// rotation d'affichage) → position affichée, rotation comprise, en points.
+export function rotatePoint({ x, y }, { width, height }, rotation) {
+	switch (rotation) {
+		case 90:
+			return { x: height - y, y: x };
+		case 180:
+			return { x: width - x, y: height - y };
+		case 270:
+			return { x: y, y: width - x };
+		default:
+			return { x, y };
+	}
+}
+
+// Transformation CSS (origine en haut à gauche) qui pose un calque dessiné
+// dans le repère de la page non tournée (calque de texte, surlignages) sur
+// la page affichée.
+export function pageLayerTransform({ width, height }, scale, rotation) {
+	const w = width * scale;
+	const h = height * scale;
+	switch (rotation) {
+		case 90:
+			return `translate(${h}px, 0) rotate(90deg)`;
+		case 180:
+			return `translate(${w}px, ${h}px) rotate(180deg)`;
+		case 270:
+			return `translate(0, ${w}px) rotate(270deg)`;
+		default:
+			return undefined;
+	}
+}
+
+// Premier titre du sommaire qui mène à la page `index`, ou null.
+function _outlineTitle(items, index) {
+	for (const item of items) {
+		if (item.page === index) return item.title;
+		const title = _outlineTitle(item.children, index);
+		if (title) return title;
+	}
+	return null;
+}
+
+// 🔹 Libellé affiché d'un signet ({ page (1 = première), label }) : le
+// sien, sinon le titre du sommaire qui mène à sa page, sinon « Page n ».
+export function bookmarkLabel(bookmark, outline) {
+	return (
+		bookmark.label ??
+		_outlineTitle(outline, bookmark.page - 1) ??
+		`Page ${bookmark.page}`
+	);
+}
+
+// Position du premier résultat de recherche ({ page }) situé sur la page
+// `index` ou après ; 0 s'il n'y en a pas (on repart du début).
+export function firstHitFrom(results, index) {
+	const position = results.findIndex((result) => result.page >= index);
+	return position === -1 ? 0 : position;
+}

@@ -15,6 +15,8 @@ process.env.UPLOAD_MAX_SIZE_MB = '1';
 process.env.LOGIN_RATE_LIMIT_WINDOW_MIN = '15';
 // 3 : la rétention des révisions se teste sans en créer 21.
 process.env.REVISIONS_KEEP = '3';
+// 20 : le refus d'un PDF trop long se teste sans en fabriquer un de 10 001 pages.
+process.env.PDF_MAX_PAGES = '20';
 // Fichiers (PDF, révisions, miniatures) dans un dossier temporaire propre à chaque
 // fichier de test (setupFiles s'exécute une fois par fichier), jamais dans
 // backend/data. Les tests qui écrivent des fichiers le suppriment en afterAll.

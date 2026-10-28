@@ -154,6 +154,18 @@ describe('POST /api/v1/documents/:id/revisions', () => {
 		expect((await listRevisions(document.id)).body.count).toBe(1);
 	});
 
+	it('refuse (422) une version qui a trop de pages', async () => {
+		const document = await uploadPdf(agent, {});
+		const response = await sendVersion(document.id, { pages: 21 });
+		expect(response.status).toBe(422);
+		expect(response.body.error).toBe('Ce PDF a trop de pages (21, 20 au plus)');
+		expect(filesIn(`documents/${document.id}`)).toEqual([
+			'original.pdf',
+			'thumbnail.jpg',
+		]);
+		expect((await listRevisions(document.id)).body.count).toBe(1);
+	});
+
 	it('accepte une version protégée : plus de miniature ni de texte', async () => {
 		const document = await uploadPdf(agent, { text: 'Lisible' });
 		const response = await sendVersion(document.id, {

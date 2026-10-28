@@ -11,6 +11,16 @@ function toInt(value, fallback) {
 	return Number.isNaN(parsed) ? fallback : parsed;
 }
 
+// Entier ≥ 1 : une valeur absurde (0, négative) refuse le démarrage plutôt
+// que de faire échouer tous les imports.
+function _positive(name, fallback) {
+	const value = toInt(process.env[name], fallback);
+	if (value < 1) {
+		throw new Error(`${name} doit être un entier supérieur ou égal à 1`);
+	}
+	return value;
+}
+
 function loadEnv() {
 	const missing = REQUIRED.filter((name) => !process.env[name]);
 	if (missing.length > 0) {
@@ -40,6 +50,9 @@ function loadEnv() {
 		uploadMaxSizeMb: toInt(process.env.UPLOAD_MAX_SIZE_MB, 100),
 		// Révisions gardées par document en plus de l'original (ADR 0006).
 		revisionsKeep: toInt(process.env.REVISIONS_KEEP, 20),
+		// Pages au plus par PDF importé ou envoyé en nouvelle version : au-delà,
+		// le PDF est refusé (piégé, ou trop lourd pour la visionneuse).
+		pdfMaxPages: _positive('PDF_MAX_PAGES', 10_000),
 		authUsername: process.env.AUTH_USERNAME,
 		authPasswordHash: process.env.AUTH_PASSWORD_HASH,
 		jwtSecret: process.env.JWT_SECRET,

@@ -45,3 +45,15 @@ describe('config/env : variables obligatoires', () => {
 		expect(() => loadEnvWith({ JWT_SECRET: undefined })).toThrow(/JWT_SECRET/);
 	});
 });
+
+describe('config/env : PDF_MAX_PAGES', () => {
+	it('vaut 10 000 par défaut', () => {
+		expect(loadEnvWith({ PDF_MAX_PAGES: undefined }).pdfMaxPages).toBe(10_000);
+	});
+
+	it.each(['0', '-5'])('refuse de démarrer avec %s', (value) => {
+		expect(() => loadEnvWith({ PDF_MAX_PAGES: value })).toThrow(
+			/PDF_MAX_PAGES/,
+		);
+	});
+});

@@ -1,7 +1,7 @@
 # ADR 0009 : visionneuse (rendu, navigation, reprise)
 
 - **Date** : 2026-10-28
-- **Statut** : accepté (T2a)
+- **Statut** : accepté (T2a, complété en T2b)
 
 ## Contexte
 
@@ -23,9 +23,20 @@ T2 ouvre les PDF dans le navigateur avec MuPDF.js (ADR 0001 et 0002). Il faut d�
 - **Écran** : la visionneuse occupe `/documents/:id` en plein écran, avec sa propre barre d'outils et sans l'en-tête de l'app. La fiche devient le panneau « Informations », à côté des pages sur grand écran et par-dessus sur un petit.
 - **Cible de build** : ES2022, à cause du top-level await de `mupdf` (Chrome 89, Firefox 89, Safari 15 et ultérieurs).
 
+### Ajouts de T2b
+
+- **Calque de texte** : le texte de chaque page affichée est lu par MuPDF (texte structuré, `extractPageText`) et posé en `<span>` transparents, une ligne par span, à la position et à la hauteur de la ligne du PDF, étirés horizontalement (`scaleX`) pour avoir sa largeur, tournés selon sa direction. La sélection, la copie, le menu du téléphone et les lecteurs d'écran sont ceux du navigateur. La rotation d'affichage est une transformation CSS du calque entier.
+- **Recherche dans le document** : faite dans le worker, page par page (par lots de 10 pages, annulable), **sans casse ni accents** (NFKD, comme l'index FTS5 du serveur) plutôt qu'avec `page.search` de MuPDF, sensible à la casse. Le texte lu est gardé par le worker (1 million de caractères par document au plus), pour qu'une deuxième recherche ne relise rien. 1 000 résultats au plus.
+- **Signets** : en base (`bookmarks`, un par page, libellé facultatif), pas dans le PDF : ils survivent aux nouvelles révisions et ne modifient pas le fichier.
+- **PDF protégés** : le mot de passe est essayé dans le worker (`authenticatePassword`) et gardé **en mémoire de l'onglet** le temps de la session (oublié à la déconnexion, sur un 401 et au rechargement). Il n'est jamais envoyé au serveur, qui ne peut donc toujours ni indexer ni rendre la miniature d'un PDF protégé.
+- **Présentation** : Fullscreen API sur un calque noir, une page entière à la fois, la suivante rendue d'avance ; sur iPhone, sans Fullscreen API, la même vue sous la barre de Safari.
+- **Impression** : les pages choisies (300 au plus, 600 Mpx en tout) sont rendues par MuPDF en JPEG à 200 dpi (moins si besoin, 100 au minimum), posées dans un conteneur qui seul s'imprime, puis la boîte d'impression du navigateur s'ouvre. Écarté : imprimer le PDF d'origine dans un `<iframe>` (il faudrait `frame-src blob:` dans la CSP et cela ne marche ni sur mobile ni partout). Le texte imprimé est une image ; l'orientation se choisit dans la boîte d'impression.
+- **Limite à l'import** : `PDF_MAX_PAGES` (10 000 par défaut), vérifiée par le serveur avant tout rendu, pour qu'un PDF piégé de centaines de milliers de pages ne fige pas l'ouverture.
+
 ## Conséquences
 
 - L'ouverture lit les dimensions de toutes les pages (rapide, mais proportionnel au nombre de pages).
 - À zoom très élevé, une grande page perd en netteté (borne de 16 Mpx) : il faudra des tuiles si cela gêne.
-- Le texte n'est pas encore sélectionnable (calque de texte en T2b).
-- Un PDF protégé par mot de passe ne s'ouvre pas encore (T2b) : la fiche s'affiche à la place.
+- Le calque de texte suit la police de l'app, étirée à la largeur des lignes : la sélection tombe juste à la ligne près, à quelques pixels près dans la ligne.
+- Une recherche dans un très gros document relit les pages au-delà du cache de texte.
+- L'impression d'un long document est lente et gourmande en mémoire (d'où les limites de 300 pages et 600 Mpx), et le texte imprimé n'est pas vectoriel.

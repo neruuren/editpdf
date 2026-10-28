@@ -5,6 +5,7 @@ export const SESSION_QUERY_KEY = ['session'];
 export const DOCUMENTS_QUERY_KEY = ['documents'];
 export const documentQueryKey = (id) => [...DOCUMENTS_QUERY_KEY, id];
 export const revisionsQueryKey = (id) => [...documentQueryKey(id), 'revisions'];
+export const bookmarksQueryKey = (id) => [...documentQueryKey(id), 'bookmarks'];
 export const COLLECTIONS_QUERY_KEY = ['collections'];
 export const SEARCH_QUERY_KEY = ['search'];
 export const searchQueryKey = (query) => [...SEARCH_QUERY_KEY, query];

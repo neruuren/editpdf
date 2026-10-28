@@ -52,6 +52,7 @@ async function _addRevision(
 		const info = await pdfService.inspectPdf(data, {
 			withThumbnail: true,
 			withText: true,
+			maxPages: env.pdfMaxPages,
 		});
 		if (info.pageCount < 1) {
 			throw new ErrorResponse('Ce PDF ne contient aucune page', 422);

@@ -25,7 +25,9 @@ export function useLogout() {
 	const queryClient = useQueryClient();
 	return useMutation({
 		mutationFn: authAPI.logout,
-		onSuccess: () => {
+		// Même si la requête échoue (réseau coupé) : on a demandé à partir,
+		// rien de la session ne doit rester dans l'onglet.
+		onSettled: () => {
 			// Rien de la session précédente ne doit rester en cache... sauf la
 			// requête de session elle-même : PrivateRoute l'observe, la supprimer
 			// le laisserait sur l'ancienne valeur au lieu de rediriger vers /login.
@@ -33,7 +35,7 @@ export function useLogout() {
 				predicate: (query) => query.queryKey[0] !== SESSION_QUERY_KEY[0],
 			});
 			queryClient.setQueryData(SESSION_QUERY_KEY, null);
-			// Les PDF gardés en mémoire pour la visionneuse aussi.
+			// Les PDF et mots de passe gardés pour la visionneuse aussi.
 			clearDocumentFileCache();
 		},
 	});

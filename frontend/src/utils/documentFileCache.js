@@ -74,7 +74,28 @@ export function getDocumentFile(id, revision, { onProgress } = {}) {
 	return promise;
 }
 
-// Déconnexion, session expirée (et tests) : plus aucun PDF en mémoire.
+// 🔹 Mots de passe des PDF protégés, saisis dans la visionneuse : gardés
+// le temps de la session, dans cet onglet seulement (jamais envoyés au
+// serveur ni écrits sur le disque), pour ne pas les redemander à chaque
+// ouverture. Par révision : une nouvelle version peut avoir un autre mot
+// de passe.
+const passwords = new Map();
+
+export function getDocumentPassword(id, revision) {
+	return passwords.get(_key(id, revision)) ?? null;
+}
+
+export function rememberDocumentPassword(id, revision, password) {
+	passwords.set(_key(id, revision), password);
+}
+
+export function forgetDocumentPassword(id, revision) {
+	passwords.delete(_key(id, revision));
+}
+
+// Déconnexion, session expirée (et tests) : plus aucun PDF ni mot de passe
+// en mémoire.
 export function clearDocumentFileCache() {
 	files.clear();
+	passwords.clear();
 }

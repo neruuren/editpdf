@@ -14,6 +14,7 @@ import {
 	computeScale,
 	currentPage,
 	layoutPages,
+	rotatePoint,
 	scaleToZoom,
 	visiblePages,
 } from '../utils/viewer';
@@ -37,7 +38,10 @@ function distance(touches) {
 // proches de l'écran existent dans le DOM et sont rendues. Un changement d'échelle (zoom, rotation,
 // largeur de la fenêtre) garde le même point du document au même endroit
 // de l'écran : le centre, ou le point sous les doigts pendant un pincement.
-// `ref.current.scrollToPage(index)` amène une page en haut de l'écran.
+// `ref.current.scrollToPage(index)` amène une page en haut de l'écran,
+// `ref.current.scrollToRect(index, rect)` un rectangle de la page (résultat
+// de recherche, en points) dans la zone visible s'il n'y est pas.
+// `highlights` : Map index de page → surlignages (voir PdfTextLayer).
 // `onScaleChange(scale)` informe la barre d'outils, `onPageChange(index)`
 // suit la page courante, `onZoomChange(facteur)` demande un nouveau zoom
 // (pincement, Ctrl + molette).
@@ -50,6 +54,7 @@ function PdfPages({
 	onScaleChange,
 	onPageChange,
 	onZoomChange,
+	highlights,
 }) {
 	const containerRef = useRef(null);
 	const contentRef = useRef(null);
@@ -137,8 +142,40 @@ function PdfPages({
 				container.scrollTop = layout.tops[index] - PAGE_GAP;
 				setScroll({ top: container.scrollTop });
 			},
+			scrollToRect(index, [x0, y0, x1, y1]) {
+				const container = containerRef.current;
+				const page = pdf.pages[index];
+				const corners = [
+					rotatePoint({ x: x0, y: y0 }, page, rotation),
+					rotatePoint({ x: x1, y: y1 }, page, rotation),
+				];
+				const top =
+					layout.tops[index] + Math.min(...corners.map((c) => c.y)) * scale;
+				const bottom =
+					layout.tops[index] + Math.max(...corners.map((c) => c.y)) * scale;
+				if (
+					top < container.scrollTop ||
+					bottom > container.scrollTop + container.clientHeight
+				) {
+					// Au tiers haut, comme la page courante.
+					container.scrollTop = top - container.clientHeight / 3;
+				}
+				// Pages centrées dans une colonne au moins aussi large que la zone.
+				const pageLeft =
+					Math.max(container.clientWidth, layout.totalWidth) / 2 -
+					layout.widths[index] / 2;
+				const left = pageLeft + Math.min(...corners.map((c) => c.x)) * scale;
+				const right = pageLeft + Math.max(...corners.map((c) => c.x)) * scale;
+				if (
+					left < container.scrollLeft ||
+					right > container.scrollLeft + container.clientWidth
+				) {
+					container.scrollLeft = left - PAGE_GAP;
+				}
+				setScroll({ top: container.scrollTop });
+			},
 		}),
-		[layout],
+		[layout, pdf.pages, rotation, scale],
 	);
 
 	// Échelle courante lue par les gestes (sans réinstaller les écouteurs).
@@ -251,6 +288,7 @@ function PdfPages({
 						pageCount={pdf.pageCount}
 						scale={scale}
 						rotation={rotation}
+						highlights={highlights?.get(index)}
 						style={{
 							insetBlockStart: layout.tops[index],
 							insetInlineStart: `calc(50% - ${layout.widths[index] / 2}px)`,

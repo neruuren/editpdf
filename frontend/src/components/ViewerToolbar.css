@@ -18,8 +18,14 @@
 	min-inline-size: 0;
 }
 
+/* Le titre rétrécit (points de suspension) : retour, navigation et les
+   boutons de fin restent sur la première ligne, même sur un téléphone. */
 .viewer-toolbar__start {
-	flex: 1 1 12rem;
+	flex: 1 1 0;
+}
+
+.viewer-toolbar__end {
+	flex: none;
 }
 
 /* Sur mobile, les commandes passent sur leur propre ligne, centrées. */
@@ -78,10 +84,51 @@
 	max-inline-size: 8.5rem;
 }
 
-/* Petit écran : le pincement remplace − / +, la rotation attend un écran
-   plus large ; la navigation et le menu de zoom tiennent sur une ligne. */
+/* Petit écran : le pincement remplace − / + ; la navigation et le menu de
+   zoom tiennent sur une ligne. */
 @media (width < 30rem) {
 	.viewer-toolbar__optional {
 		display: none;
 	}
+}
+
+/* Menu « Plus d'actions » : popover ancré au bouton (un navigateur sans
+   anchor positioning le centre, ce qui reste utilisable). */
+.viewer-toolbar__menu-button {
+	anchor-name: --viewer-toolbar-menu;
+}
+
+.viewer-toolbar__menu {
+	position-anchor: --viewer-toolbar-menu;
+	position-area: block-end span-inline-start;
+	position-try-fallbacks: flip-block;
+	min-inline-size: 14rem;
+	margin: var(--space-1) 0;
+	padding: var(--space-2);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+	color: var(--color-text);
+	background: var(--color-surface);
+	box-shadow: var(--shadow);
+}
+
+.viewer-toolbar__menu:popover-open {
+	display: grid;
+	gap: var(--space-1);
+}
+
+.viewer-toolbar__menu-item {
+	justify-content: flex-start;
+	inline-size: 100%;
+	font-weight: 400;
+	text-decoration: none;
+}
+
+.viewer-toolbar__svg {
+	inline-size: 1.25em;
+	block-size: 1.25em;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2.25;
+	stroke-linecap: round;
 }

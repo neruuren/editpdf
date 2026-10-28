@@ -1,15 +1,17 @@
 /* Plein écran : la visionneuse remplace l'en-tête de l'app par sa barre
    d'outils, et seules les pages défilent. */
 .pdf-viewer {
-	display: grid;
-	grid-template-rows: auto 1fr;
+	display: flex;
+	flex-direction: column;
 	block-size: 100dvh;
 	overflow: hidden;
 }
 
+/* Sous la barre d'outils (et la barre de recherche), le reste de l'écran. */
 .pdf-viewer__body {
 	position: relative;
 	display: flex;
+	flex: 1;
 	min-block-size: 0;
 }
 
@@ -90,4 +92,12 @@
 	.pdf-viewer__info {
 		inset-inline-end: 0;
 	}
+}
+
+.pdf-viewer__error {
+	margin: 0;
+	padding: var(--space-2) var(--space-4);
+	color: var(--color-danger);
+	background: var(--color-surface);
+	border-block-end: 1px solid var(--color-border);
 }

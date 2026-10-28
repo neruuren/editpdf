@@ -64,13 +64,43 @@ function call(type, params, { transfer = [], signal } = {}) {
 	});
 }
 
+function _pdf(documentId, info) {
+	return {
+		...info,
+		renderPage: (index, { scale, rotation = 0, signal } = {}) =>
+			call('render', { documentId, index, scale, rotation }, { signal }),
+		getTextLayer: (index, { signal } = {}) =>
+			call('text', { documentId, index }, { signal }),
+		searchPages: (from, count, query, { signal } = {}) =>
+			call('search', { documentId, from, count, query }, { signal }),
+		renderPageJpeg: (index, { scale, signal } = {}) =>
+			call('renderJpeg', { documentId, index, scale }, { signal }),
+		// Mot de passe d'un PDF protégé (needsPassword) : renvoie le document
+		// déverrouillé, ou null si le mot de passe est faux.
+		unlock: async (password) => {
+			const unlocked = await call('unlock', { documentId, password });
+			return unlocked ? _pdf(documentId, unlocked) : null;
+		},
+		close: () => call('close', { documentId }),
+	};
+}
+
 // 🔹 Ouvre un PDF (ArrayBuffer, gardé intact : le worker en reçoit une
 // copie). Renvoie :
 // - pageCount, needsPassword, pages ([{ width, height }] en points),
-//   outline ([{ title, page (index 0) | null, children }]) ;
+//   outline ([{ title, page (index 0) | null, children }]) ; un PDF
+//   protégé (needsPassword) n'a ni pages ni sommaire avant unlock() ;
 // - renderPage(index, { scale, rotation, signal }) → { width, height,
 //   bitmap } (ImageBitmap, à fermer par bitmap.close() quand il ne sert plus) ;
-// - close() : libère le document dans le worker.
+// - getTextLayer(index, { signal }) → [{ text, x, y, width, height, angle }]
+//   (lignes de texte, en points depuis le coin haut gauche de la page) ;
+// - searchPages(from, count, query, { signal }) → [{ index, hits: [{ rects
+//   ([x0, y0, x1, y1] en points), before, match, after }] }], pour les
+//   pages de `from` à `from + count - 1` qui contiennent `query` (sans
+//   casse ni accents) ;
+// - renderPageJpeg(index, { scale, signal }) → Uint8Array (impression) ;
+// - unlock(password) → document déverrouillé | null ;
+// - close() : libère le document dans le worker (déverrouillé ou non).
 export async function openPdf(data) {
 	const copy = data.slice(0);
 	const { documentId, ...info } = await call(
@@ -78,10 +108,5 @@ export async function openPdf(data) {
 		{ data: copy },
 		{ transfer: [copy] },
 	);
-	return {
-		...info,
-		renderPage: (index, { scale, rotation = 0, signal } = {}) =>
-			call('render', { documentId, index, scale, rotation }, { signal }),
-		close: () => call('close', { documentId }),
-	};
+	return _pdf(documentId, info);
 }

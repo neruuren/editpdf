@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import PdfTextLayer from './PdfTextLayer';
 import './PdfPageView.css';
 
 // Attente avant de rendre : pendant un défilement rapide ou un pincement,
@@ -11,7 +12,18 @@ const MAX_PIXEL_RATIO = 3;
 // est proche de l'écran : un emplacement à sa taille et son rendu par le
 // moteur PDF sur un <canvas> à la résolution de l'écran. Pendant un
 // changement de zoom, l'ancien rendu reste affiché, étiré, jusqu'au nouveau.
-function PdfPageView({ pdf, index, pageCount, scale, rotation, style }) {
+// Par-dessus, le calque de texte (sélection, surlignage des `highlights` de
+// la recherche), sauf `withTextLayer={false}` (présentation).
+function PdfPageView({
+	pdf,
+	index,
+	pageCount,
+	scale,
+	rotation,
+	style,
+	highlights,
+	withTextLayer = true,
+}) {
 	const canvasRef = useRef(null);
 	const [status, setStatus] = useState('empty');
 
@@ -49,11 +61,26 @@ function PdfPageView({ pdf, index, pageCount, scale, rotation, style }) {
 		<div
 			className="pdf-page-view"
 			style={style}
-			role="img"
+			role="group"
 			aria-label={`Page ${index + 1} sur ${pageCount}`}
 			data-status={status}
 		>
-			<canvas ref={canvasRef} className="pdf-page-view__canvas" />
+			<canvas
+				ref={canvasRef}
+				className="pdf-page-view__canvas"
+				aria-hidden="true"
+			/>
+			{withTextLayer && (
+				<PdfTextLayer
+					pdf={pdf}
+					index={index}
+					page={pdf.pages[index]}
+					scale={scale}
+					rotation={rotation}
+					isReady={status === 'rendered'}
+					highlights={highlights}
+				/>
+			)}
 			{status !== 'rendered' && (
 				<span className="pdf-page-view__placeholder" aria-hidden="true">
 					{status === 'error' ? 'Page illisible' : index + 1}

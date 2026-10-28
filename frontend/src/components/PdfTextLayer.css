@@ -1,0 +1,47 @@
+/* Calque dans le repère de la page non tournée : la rotation d'affichage
+   est une transformation CSS (pageLayerTransform). */
+.pdf-text-layer {
+	position: absolute;
+	inset-block-start: 0;
+	inset-inline-start: 0;
+	overflow: hidden;
+	transform-origin: 0 0;
+	line-height: 1;
+	/* Le texte suit la page : pas de sens d'écriture de l'interface. */
+	direction: ltr;
+	text-align: start;
+}
+
+.pdf-text-layer__line {
+	position: absolute;
+	transform-origin: 0 0;
+	white-space: pre;
+	color: transparent;
+	cursor: text;
+}
+
+.pdf-text-layer__line::selection {
+	background: color-mix(in srgb, #2f6fdb 35%, transparent);
+}
+
+/* Surlignages : sous le texte, pour ne pas gêner la sélection. */
+.pdf-text-layer__highlight {
+	position: absolute;
+	border-radius: 2px;
+	background: color-mix(in srgb, #f5c400 45%, transparent);
+	/* Le texte noir de la page reste noir sous le surligneur. */
+	mix-blend-mode: multiply;
+	pointer-events: none;
+}
+
+.pdf-text-layer__highlight[data-active] {
+	background: color-mix(in srgb, #f28c00 60%, transparent);
+	outline: 2px solid #c2410c;
+}
+
+@media (forced-colors: active) {
+	.pdf-text-layer__highlight {
+		background: Highlight;
+		opacity: 0.4;
+	}
+}

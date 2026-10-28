@@ -1,19 +1,42 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import BookmarkList from './BookmarkList';
 import OutlineList from './OutlineList';
 import PdfThumbnail from './PdfThumbnail';
+import SearchResultsList from './SearchResultsList';
 import { layoutThumbnails, visiblePages } from '../utils/viewer';
 import './ViewerSidebar.css';
 
 // Miniatures montées en plus au-dessus et en dessous de la partie visible.
 const THUMBNAIL_MARGIN = 4;
 
-// 🔹 Panneau latéral de la visionneuse : miniatures des pages ou sommaire
-// du PDF (onglet « Sommaire » d'abord s'il existe). Comme les pages, seules
-// les miniatures proches de la partie visible de la liste existent dans le
-// DOM. `onSelectPage(index)` amène une page à l'écran.
-function ViewerSidebar({ pdf, rotation, currentPage, onSelectPage }) {
+const TABS = [
+	{ value: 'thumbnails', label: 'Miniatures' },
+	{ value: 'outline', label: 'Sommaire' },
+	{ value: 'bookmarks', label: 'Signets' },
+	{ value: 'results', label: 'Résultats' },
+];
+
+// 🔹 Panneau latéral de la visionneuse, en onglets (`tab`, choisi par la
+// visionneuse) : miniatures des pages, sommaire du PDF, signets personnels
+// et résultats de la recherche (seulement pendant une recherche). Comme
+// les pages, seules les miniatures proches de la partie visible de la
+// liste existent dans le DOM. `onSelectPage(index)` amène une page à
+// l'écran.
+function ViewerSidebar({
+	pdf,
+	rotation,
+	currentPage,
+	tab,
+	onTabChange,
+	onSelectPage,
+	bookmarks,
+	onRenameBookmark,
+	onRemoveBookmark,
+	search,
+	activeResult,
+	onSelectResult,
+}) {
 	const hasOutline = pdf.outline.length > 0;
-	const [tab, setTab] = useState(hasOutline ? 'outline' : 'thumbnails');
 	const contentRef = useRef(null);
 	const [view, setView] = useState({ top: 0, height: 0 });
 	const layout = useMemo(
@@ -50,22 +73,19 @@ function ViewerSidebar({ pdf, rotation, currentPage, onSelectPage }) {
 				role="group"
 				aria-label="Affichage du panneau"
 			>
-				<button
-					type="button"
-					className="viewer-sidebar__tab"
-					aria-pressed={tab === 'thumbnails'}
-					onClick={() => setTab('thumbnails')}
-				>
-					Miniatures
-				</button>
-				<button
-					type="button"
-					className="viewer-sidebar__tab"
-					aria-pressed={tab === 'outline'}
-					onClick={() => setTab('outline')}
-				>
-					Sommaire
-				</button>
+				{TABS.filter(({ value }) => value !== 'results' || search).map(
+					({ value, label }) => (
+						<button
+							key={value}
+							type="button"
+							className="viewer-sidebar__tab"
+							aria-pressed={tab === value}
+							onClick={() => onTabChange(value)}
+						>
+							{label}
+						</button>
+					),
+				)}
 			</div>
 			<div
 				ref={contentRef}
@@ -99,6 +119,23 @@ function ViewerSidebar({ pdf, rotation, currentPage, onSelectPage }) {
 					) : (
 						<p className="viewer-sidebar__empty">Ce PDF n’a pas de sommaire.</p>
 					))}
+				{tab === 'bookmarks' && (
+					<BookmarkList
+						bookmarks={bookmarks}
+						outline={pdf.outline}
+						pageCount={pdf.pageCount}
+						onSelectPage={onSelectPage}
+						onRename={onRenameBookmark}
+						onRemove={onRemoveBookmark}
+					/>
+				)}
+				{tab === 'results' && search && (
+					<SearchResultsList
+						search={search}
+						activeResult={activeResult}
+						onSelect={onSelectResult}
+					/>
+				)}
 			</div>
 		</nav>
 	);

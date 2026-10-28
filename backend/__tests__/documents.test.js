@@ -150,6 +150,16 @@ describe('POST /api/v1/documents', () => {
 		expect(filesIn('tmp')).toEqual([]);
 	});
 
+	// jest.setup.js : PDF_MAX_PAGES = 20.
+	it('refuse (422) un PDF qui a trop de pages, sans rien garder', async () => {
+		expect((await upload({ pages: 20 })).status).toBe(201);
+		const response = await upload({ pages: 21, text: 'Long' });
+		expect(response.status).toBe(422);
+		expect(response.body.error).toBe('Ce PDF a trop de pages (21, 20 au plus)');
+		expect(filesIn('documents')).toHaveLength(1);
+		expect(filesIn('tmp')).toEqual([]);
+	});
+
 	it('refuse (415) un fichier qui n’a pas l’extension .pdf', async () => {
 		const response = await agent
 			.post('/api/v1/documents')

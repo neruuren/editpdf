@@ -53,11 +53,12 @@ Livrée en deux temps : **T2a** (lire : moteur, rendu, zoom, navigation, reprise
 
 ### T2b
 
-- [ ] Calque de texte : sélection et copie (N)
-- [ ] Recherche dans le document avec surlignage des résultats (N), raccourci Ctrl + F
-- [ ] Signets personnels (base)
-- [ ] Ouverture des PDF protégés par mot de passe (saisie à l'ouverture) (N)
-- [ ] Mode présentation / plein écran, page par page, impression
+- [x] Calque de texte : sélection et copie (N)
+- [x] Recherche dans le document avec surlignage des résultats (N), raccourci Ctrl + F
+- [x] Signets personnels (base)
+- [x] Ouverture des PDF protégés par mot de passe (saisie à l'ouverture) (N)
+- [x] Mode présentation / plein écran, page par page, impression
+- [x] Nombre maximal de pages à l'import (`PDF_MAX_PAGES`, 10 000)
 
 ## T3 : annotations
 

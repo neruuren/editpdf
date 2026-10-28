@@ -1,0 +1,57 @@
+.pdf-presentation {
+	position: fixed;
+	inset: 0;
+	z-index: 20;
+	overflow: hidden;
+	background: #000000;
+	/* Les gestes changent de page : pas de défilement ni de zoom du navigateur. */
+	touch-action: none;
+	user-select: none;
+	cursor: pointer;
+}
+
+.pdf-presentation:focus {
+	outline: none;
+}
+
+.pdf-presentation .pdf-page-view {
+	box-shadow: none;
+}
+
+.pdf-presentation__counter {
+	position: absolute;
+	inset-block-end: max(var(--space-2), env(safe-area-inset-bottom));
+	inset-inline-end: var(--space-4);
+	margin: 0;
+	padding: var(--space-1) var(--space-2);
+	border-radius: var(--radius-sm);
+	font-variant-numeric: tabular-nums;
+	color: #ffffff;
+	background: rgb(0 0 0 / 0.55);
+}
+
+.pdf-presentation__close {
+	position: absolute;
+	inset-block-start: max(var(--space-2), env(safe-area-inset-top));
+	inset-inline-end: max(var(--space-2), env(safe-area-inset-right));
+	min-inline-size: var(--tap-size);
+	min-block-size: var(--tap-size);
+	border: 0;
+	border-radius: 50%;
+	font-size: var(--font-size-lg);
+	color: #ffffff;
+	background: rgb(0 0 0 / 0.55);
+	/* Discret pendant la présentation, net au survol et au clavier. */
+	opacity: 0.4;
+	cursor: pointer;
+}
+
+.pdf-presentation__close:hover,
+.pdf-presentation__close:focus-visible {
+	opacity: 1;
+}
+
+.pdf-presentation__close:focus-visible {
+	outline: 3px solid var(--color-accent);
+	outline-offset: 2px;
+}

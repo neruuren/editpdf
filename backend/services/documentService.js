@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const fs = require('fs/promises');
 const path = require('path');
+const env = require('../config/env');
 const { getDb } = require('../config/db');
 const Collection = require('../models/Collection');
 const Document = require('../models/Document');
@@ -57,6 +58,7 @@ async function importDocument(upload) {
 		const info = await pdfService.inspectPdf(data, {
 			withThumbnail: true,
 			withText: true,
+			maxPages: env.pdfMaxPages,
 		});
 		if (info.pageCount < 1) {
 			throw new ErrorResponse('Ce PDF ne contient aucune page', 422);

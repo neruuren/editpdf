@@ -60,6 +60,47 @@ function fakePdf() {
 			height: 10,
 			bitmap: { close: vi.fn() },
 		})),
+		getTextLayer: vi.fn(async (index) => [
+			{
+				text: `Texte de la page ${index + 1}`,
+				x: 72,
+				y: 72,
+				width: 200,
+				height: 20,
+				angle: 0,
+			},
+		]),
+		// « rapport » sur les pages 1 et 3.
+		searchPages: vi.fn(async (from) =>
+			from === 0
+				? [
+						{
+							index: 0,
+							hits: [
+								{
+									rects: [[72, 72, 150, 92]],
+									before: 'Le ',
+									match: 'rapport',
+									after: ' annuel',
+								},
+							],
+						},
+						{
+							index: 2,
+							hits: [
+								{
+									rects: [[72, 300, 150, 320]],
+									before: 'Annexe du ',
+									match: 'rapport',
+									after: '',
+								},
+							],
+						},
+					]
+				: [],
+		),
+		renderPageJpeg: vi.fn(async () => new Uint8Array([0xff, 0xd8])),
+		unlock: vi.fn(async () => null),
 		close: vi.fn(async () => null),
 	};
 }
@@ -74,6 +115,7 @@ function routes(document = RAPPORT, extra = {}) {
 		[`GET /api/v1/documents/${document.id}/file`]: { status: 200, body: null },
 		[`PUT /api/v1/documents/${document.id}/reading`]: (options) =>
 			ok({ ...document, lastPage: JSON.parse(options.body).page }),
+		[`GET /api/v1/documents/${document.id}/bookmarks`]: ok([]),
 		...extra,
 	};
 }
@@ -105,7 +147,7 @@ describe('ViewerPage', () => {
 		expect(screen.getByLabelText('Page')).toHaveValue('2');
 		expect(screen.getByText('/ 3')).toBeInTheDocument();
 		expect(
-			screen.getAllByRole('img', { name: /^Page \d sur 3$/ }).length,
+			screen.getAllByRole('group', { name: /^Page \d sur 3$/ }).length,
 		).toBeGreaterThan(0);
 		await waitFor(() => expect(pdf.renderPage).toHaveBeenCalled());
 
@@ -195,20 +237,205 @@ describe('ViewerPage', () => {
 		expect(screen.getByRole('button', { name: 'Page suivante' })).toBeEnabled();
 	});
 
-	it('n’ouvre pas un PDF protégé et montre sa fiche', async () => {
-		const locked = { ...RAPPORT, id: 'secret', isEncrypted: true };
-		const fetchMock = mockFetch(routes(locked));
+	it('demande le mot de passe d’un PDF protégé et le garde pour la session', async () => {
+		const locked = { ...fakePdf(), needsPassword: true, pages: [] };
+		const unlocked = fakePdf();
+		locked.unlock.mockImplementation(async (password) =>
+			password === 'secret' ? unlocked : null,
+		);
+		openPdf.mockResolvedValue(locked);
+		const secret = { ...RAPPORT, id: 'secret', isEncrypted: true };
+		mockFetch(routes(secret));
+		const { unmount } = renderWithProviders(<App />, {
+			route: '/documents/secret',
+		});
+
+		const input = await screen.findByLabelText('Mot de passe du PDF');
+		await userEvent.type(input, 'faux');
+		await userEvent.click(screen.getByRole('button', { name: 'Ouvrir' }));
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'Mot de passe incorrect.',
+		);
+
+		await userEvent.clear(input);
+		await userEvent.type(input, 'secret');
+		await userEvent.click(screen.getByRole('button', { name: 'Ouvrir' }));
+		expect(
+			await screen.findByLabelText('Pages du document'),
+		).toBeInTheDocument();
+		expect(locked.unlock).toHaveBeenLastCalledWith('secret');
+		unmount();
+
+		// Rouvert dans la même session : le mot de passe n'est pas redemandé.
+		locked.unlock.mockClear();
 		renderWithProviders(<App />, { route: '/documents/secret' });
 		expect(
-			await screen.findByText(/protégé par un mot de passe\. Son ouverture/),
+			await screen.findByLabelText('Pages du document'),
 		).toBeInTheDocument();
-		expect(
-			screen.getByRole('complementary', { name: 'Informations' }),
-		).toBeInTheDocument();
-		expect(openPdf).not.toHaveBeenCalled();
-		expect(fetchMock.mock.calls.some(([url]) => url.endsWith('/file'))).toBe(
-			false,
+		expect(locked.unlock).toHaveBeenCalledWith('secret');
+		expect(screen.queryByLabelText('Mot de passe du PDF')).toBeNull();
+	});
+
+	it('pose le texte de la page sur son rendu, sélectionnable', async () => {
+		const { pdf } = await openViewer({ ...RAPPORT, lastPage: null });
+		const page = screen.getByRole('group', { name: 'Page 1 sur 3' });
+		expect(await within(page).findByText('Texte de la page 1')).toBeVisible();
+		expect(pdf.getTextLayer).toHaveBeenCalledWith(0, expect.anything());
+	});
+
+	it('cherche dans le document (Ctrl + F), surligne et parcourt les résultats', async () => {
+		const { pdf } = await openViewer({ ...RAPPORT, lastPage: null });
+		await userEvent.keyboard('{Control>}f{/Control}');
+		const input = screen.getByLabelText('Rechercher dans le document', {
+			selector: 'input',
+		});
+		expect(input).toHaveFocus();
+
+		await userEvent.type(input, 'rapport');
+		expect(await screen.findByText('1 / 2')).toBeInTheDocument();
+		expect(pdf.searchPages).toHaveBeenCalledWith(
+			0,
+			expect.any(Number),
+			'rapport',
+			expect.anything(),
 		);
+		await userEvent.keyboard('{Enter}');
+		expect(screen.getByText('2 / 2')).toBeInTheDocument();
+		await userEvent.click(
+			screen.getByRole('button', { name: 'Résultat suivant' }),
+		);
+		expect(screen.getByText('1 / 2')).toBeInTheDocument();
+
+		await userEvent.click(screen.getByRole('button', { name: /Navigation/ }));
+		await userEvent.click(screen.getByRole('button', { name: 'Résultats' }));
+		const results = screen.getAllByRole('button', { name: /^Page \d[A-Z]/ });
+		expect(results).toHaveLength(2);
+		expect(results[0]).toHaveTextContent('Page 1Le rapport annuel');
+		expect(results[0]).toHaveAttribute('aria-current', 'true');
+		await userEvent.click(results[1]);
+		expect(screen.getByText('2 / 2')).toBeInTheDocument();
+
+		await userEvent.click(input);
+		await userEvent.keyboard('{Escape}');
+		expect(
+			screen.queryByLabelText('Rechercher dans le document', {
+				selector: 'input',
+			}),
+		).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Résultats' })).toBeNull();
+	});
+
+	it('pose, renomme et retire un signet', async () => {
+		const { fetchMock } = await openViewer(RAPPORT, {
+			'PUT /api/v1/documents/rapport/bookmarks/2': (options) =>
+				ok(
+					{
+						page: 2,
+						label: JSON.parse(options.body).label,
+						createdAt: '2026-10-28T10:00:00.000Z',
+					},
+					201,
+				),
+			'DELETE /api/v1/documents/rapport/bookmarks/2': ok(null),
+		});
+		const toggle = screen.getByRole('button', {
+			name: 'Signet sur cette page',
+		});
+		expect(toggle).toHaveAttribute('aria-pressed', 'false');
+		await userEvent.click(toggle);
+		await waitFor(() => expect(toggle).toHaveAttribute('aria-pressed', 'true'));
+
+		await userEvent.click(screen.getByRole('button', { name: /Navigation/ }));
+		await userEvent.click(screen.getByRole('button', { name: 'Signets' }));
+		// Sans libellé : le titre du sommaire qui mène à la page 2.
+		expect(
+			screen.getByRole('button', { name: /^Contexte/ }),
+		).toBeInTheDocument();
+
+		await userEvent.click(
+			screen.getByRole('button', { name: 'Renommer le signet « Contexte »' }),
+		);
+		const label = screen.getByLabelText('Libellé du signet de la page 2');
+		await userEvent.type(label, 'Chiffres clés');
+		await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }));
+		expect(
+			await screen.findByRole('button', { name: /^Chiffres clés/ }),
+		).toBeInTheDocument();
+		const rename = fetchMock.mock.calls.findLast(([url]) =>
+			url.endsWith('/bookmarks/2'),
+		);
+		expect(JSON.parse(rename[1].body)).toEqual({ label: 'Chiffres clés' });
+
+		await userEvent.click(
+			screen.getByRole('button', {
+				name: 'Retirer le signet « Chiffres clés »',
+			}),
+		);
+		expect(await screen.findByText(/Aucun signet/)).toBeInTheDocument();
+		expect(toggle).toHaveAttribute('aria-pressed', 'false');
+	});
+
+	it('présente le document page par page', async () => {
+		await openViewer();
+		await userEvent.click(
+			screen.getByRole('button', { name: 'Présenter', hidden: true }),
+		);
+		const presentation = screen.getByRole('dialog', { name: 'Présentation' });
+		expect(within(presentation).getByText('2 / 3')).toBeInTheDocument();
+		await userEvent.keyboard('{ArrowRight}');
+		expect(within(presentation).getByText('3 / 3')).toBeInTheDocument();
+		await userEvent.keyboard('{ArrowRight}');
+		expect(within(presentation).getByText('3 / 3')).toBeInTheDocument();
+		await userEvent.keyboard('{Escape}');
+		expect(screen.queryByRole('dialog', { name: 'Présentation' })).toBeNull();
+	});
+
+	it('imprime la page affichée, rendue par le moteur', async () => {
+		const print = vi.spyOn(window, 'print').mockImplementation(() => {});
+		URL.createObjectURL = vi.fn(() => 'blob:page');
+		URL.revokeObjectURL = vi.fn();
+		const { pdf } = await openViewer();
+		await userEvent.click(
+			screen.getByRole('button', { name: 'Imprimer…', hidden: true }),
+		);
+		const dialog = screen.getByRole('dialog', { name: 'Imprimer' });
+
+		await userEvent.click(within(dialog).getByLabelText('Pages'));
+		await userEvent.clear(within(dialog).getByLabelText('Première page'));
+		await userEvent.type(within(dialog).getByLabelText('Première page'), '3');
+		await userEvent.clear(within(dialog).getByLabelText('Dernière page'));
+		await userEvent.type(within(dialog).getByLabelText('Dernière page'), '2');
+		await userEvent.click(
+			within(dialog).getByRole('button', { name: 'Imprimer' }),
+		);
+		expect(within(dialog).getByRole('alert')).toHaveTextContent(
+			'Choisissez des pages entre 1 et 3.',
+		);
+
+		await userEvent.click(within(dialog).getByLabelText('Page affichée (2)'));
+		await userEvent.click(
+			within(dialog).getByRole('button', { name: 'Imprimer' }),
+		);
+		// jsdom ne charge pas les images : on signale la page chargée.
+		const image = await waitFor(() => {
+			const node = document.querySelector('.print-pages img');
+			expect(node).not.toBeNull();
+			return node;
+		});
+		image.dispatchEvent(new Event('load'));
+		await waitFor(() => expect(print).toHaveBeenCalled());
+		expect(pdf.renderPageJpeg).toHaveBeenCalledTimes(1);
+		expect(pdf.renderPageJpeg).toHaveBeenCalledWith(1, expect.anything());
+		expect(document.querySelector('.print-pages img')).toHaveAttribute(
+			'alt',
+			'Page 2',
+		);
+		window.dispatchEvent(new Event('afterprint'));
+		await waitFor(() =>
+			expect(document.querySelector('.print-pages')).toBeNull(),
+		);
+		expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:page');
+		print.mockRestore();
 	});
 
 	it('signale un PDF que le moteur ne peut pas ouvrir', async () => {
@@ -250,7 +477,7 @@ describe('ViewerPage', () => {
 		renderWithProviders(<App />, { route: '/documents/rapport' });
 		await screen.findByText('/ 5000');
 		expect(
-			screen.getAllByRole('img', { name: /sur 5000$/ }).length,
+			screen.getAllByRole('group', { name: /sur 5000$/ }).length,
 		).toBeLessThanOrEqual(24);
 
 		await userEvent.click(screen.getByRole('button', { name: /Navigation/ }));
