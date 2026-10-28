@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { authAPI } from '../utils/api';
 import { SESSION_QUERY_KEY } from '../utils/queryClient';
+import { clearDocumentFileCache } from '../utils/documentFileCache';
 
 // 🔹 Session courante : l'utilisateur ({ username }) ou null si non connecté.
 // La source de vérité est le cache TanStack Query, pas un contexte React.
@@ -32,6 +33,8 @@ export function useLogout() {
 				predicate: (query) => query.queryKey[0] !== SESSION_QUERY_KEY[0],
 			});
 			queryClient.setQueryData(SESSION_QUERY_KEY, null);
+			// Les PDF gardés en mémoire pour la visionneuse aussi.
+			clearDocumentFileCache();
 		},
 	});
 }

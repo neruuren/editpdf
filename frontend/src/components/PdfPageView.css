@@ -1,0 +1,21 @@
+.pdf-page-view {
+	position: absolute;
+	/* Page imprimée : blanche quel que soit le thème. */
+	background: #ffffff;
+	box-shadow: var(--shadow);
+}
+
+.pdf-page-view__canvas {
+	display: block;
+	inline-size: 100%;
+	block-size: 100%;
+}
+
+.pdf-page-view__placeholder {
+	position: absolute;
+	inset: 0;
+	display: grid;
+	place-items: center;
+	font-size: var(--font-size-lg);
+	color: #8a8f99;
+}

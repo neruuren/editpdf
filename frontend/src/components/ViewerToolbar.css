@@ -1,0 +1,87 @@
+.viewer-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-1) var(--space-3);
+	padding: var(--space-1) var(--space-2);
+	padding-block-start: max(var(--space-1), env(safe-area-inset-top));
+	padding-inline: max(var(--space-2), env(safe-area-inset-left))
+		max(var(--space-2), env(safe-area-inset-right));
+	border-block-end: 1px solid var(--color-border);
+	background: var(--color-surface);
+}
+
+.viewer-toolbar__group {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1);
+	min-inline-size: 0;
+}
+
+.viewer-toolbar__start {
+	flex: 1 1 12rem;
+}
+
+/* Sur mobile, les commandes passent sur leur propre ligne, centrées. */
+.viewer-toolbar__controls {
+	order: 3;
+	flex: 1 1 100%;
+	justify-content: center;
+	flex-wrap: wrap;
+}
+
+@media (width >= 60rem) {
+	.viewer-toolbar__controls {
+		order: 0;
+		flex: 0 1 auto;
+	}
+}
+
+.viewer-toolbar__icon {
+	min-inline-size: var(--tap-size);
+	padding-inline: var(--space-2);
+	font-size: var(--font-size-lg);
+	text-decoration: none;
+}
+
+.viewer-toolbar__icon[aria-pressed='true'] {
+	color: var(--color-primary-contrast);
+	background: var(--color-primary);
+}
+
+.viewer-toolbar__title {
+	margin: 0;
+	overflow: hidden;
+	font-size: var(--font-size-base);
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.viewer-toolbar__page {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1);
+}
+
+.viewer-toolbar__page-input {
+	inline-size: 4rem;
+	text-align: center;
+}
+
+.viewer-toolbar__page-count {
+	color: var(--color-text-muted);
+	white-space: nowrap;
+}
+
+.viewer-toolbar__zoom {
+	inline-size: auto;
+	max-inline-size: 8.5rem;
+}
+
+/* Petit écran : le pincement remplace − / +, la rotation attend un écran
+   plus large ; la navigation et le menu de zoom tiennent sur une ligne. */
+@media (width < 30rem) {
+	.viewer-toolbar__optional {
+		display: none;
+	}
+}

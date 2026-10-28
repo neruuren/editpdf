@@ -48,6 +48,16 @@ const BASE_ROUTES = {
 	'GET /api/v1/documents/bail/revisions': ok([ORIGINAL]),
 };
 
+// La fiche est le panneau « Informations » de la visionneuse : on l'ouvre.
+// Le PDF lui-même n'est pas servi (404) : la visionneuse affiche son
+// erreur, le panneau fonctionne quand même.
+async function openDetails() {
+	renderWithProviders(<App />, { route: '/documents/bail' });
+	await userEvent.click(
+		await screen.findByRole('button', { name: 'Informations' }),
+	);
+}
+
 // Corps JSON de l'appel `method url` (le dernier).
 function sentBody(fetchMock, method, url) {
 	const call = fetchMock.mock.calls.findLast(
@@ -56,15 +66,15 @@ function sentBody(fetchMock, method, url) {
 	return call && JSON.parse(call[1].body);
 }
 
-describe('DocumentPage', () => {
+describe('DocumentDetails (panneau Informations)', () => {
 	it('montre les informations et propose le téléchargement', async () => {
 		mockFetch({
 			...BASE_ROUTES,
 			'GET /api/v1/documents/bail': ok(BAIL),
 		});
-		renderWithProviders(<App />, { route: '/documents/bail' });
+		await openDetails();
 		expect(
-			await screen.findByRole('heading', { name: 'Contrat de bail' }),
+			await screen.findByRole('heading', { name: 'Contrat de bail', level: 2 }),
 		).toBeInTheDocument();
 		expect(screen.getByText('12 pages')).toBeInTheDocument();
 		expect(screen.getByText('bail-2026.pdf')).toBeInTheDocument();
@@ -83,7 +93,7 @@ describe('DocumentPage', () => {
 			...BASE_ROUTES,
 			'GET /api/v1/documents/bail': ok({ ...BAIL, currentRevision: 2 }),
 		});
-		renderWithProviders(<App />, { route: '/documents/bail' });
+		await openDetails();
 		expect(
 			await screen.findByRole('link', { name: 'Télécharger l’original' }),
 		).toHaveAttribute('href', '/api/v1/documents/bail/revisions/0/file');
@@ -100,7 +110,7 @@ describe('DocumentPage', () => {
 					updatedAt: '2026-03-02T10:00:00.000Z',
 				}),
 		});
-		renderWithProviders(<App />, { route: '/documents/bail' });
+		await openDetails();
 		const title = await screen.findByLabelText('Titre');
 		await userEvent.clear(title);
 		await userEvent.type(title, 'Bail signé');
@@ -109,7 +119,7 @@ describe('DocumentPage', () => {
 
 		expect(await screen.findByText('Enregistré.')).toBeInTheDocument();
 		expect(
-			screen.getByRole('heading', { name: 'Bail signé' }),
+			screen.getByRole('heading', { name: 'Bail signé', level: 2 }),
 		).toBeInTheDocument();
 		const patch = fetchMock.mock.calls.find(
 			([, options]) => options?.method === 'PATCH',
@@ -130,7 +140,7 @@ describe('DocumentPage', () => {
 				body: { success: false, error: 'Le champ « title » est requis' },
 			},
 		});
-		renderWithProviders(<App />, { route: '/documents/bail' });
+		await openDetails();
 		await userEvent.click(
 			await screen.findByRole('button', { name: 'Enregistrer' }),
 		);
@@ -149,7 +159,7 @@ describe('DocumentPage', () => {
 				body: { success: true, count: 0, data: [] },
 			},
 		});
-		renderWithProviders(<App />, { route: '/documents/bail' });
+		await openDetails();
 		await userEvent.click(
 			await screen.findByRole('button', { name: 'Supprimer' }),
 		);
@@ -201,7 +211,7 @@ describe('DocumentPage', () => {
 				return ok(current);
 			},
 		});
-		renderWithProviders(<App />, { route: '/documents/bail' });
+		await openDetails();
 
 		await userEvent.click(
 			await screen.findByRole('checkbox', { name: 'Maison' }),
@@ -262,7 +272,7 @@ describe('DocumentPage', () => {
 				return ok(current, 201);
 			},
 		});
-		renderWithProviders(<App />, { route: '/documents/bail' });
+		await openDetails();
 		const history = (
 			await screen.findByRole('heading', { name: 'Historique' })
 		).closest('section');
@@ -311,7 +321,7 @@ describe('DocumentPage', () => {
 				},
 			},
 		});
-		renderWithProviders(<App />, { route: '/documents/bail' });
+		await openDetails();
 		const history = (
 			await screen.findByRole('heading', { name: 'Historique' })
 		).closest('section');
@@ -349,7 +359,7 @@ describe('DocumentPage', () => {
 			},
 			'DELETE /api/v1/documents/bail/revisions/1': ok(null),
 		});
-		renderWithProviders(<App />, { route: '/documents/bail' });
+		await openDetails();
 		const history = (
 			await screen.findByRole('heading', { name: 'Historique' })
 		).closest('section');

@@ -9,7 +9,7 @@ const { compareNames } = require('../utils/validators');
 const PUBLIC_COLUMNS = `
 	d.id, d.title, d.author, d.subject, d.page_count, d.is_encrypted,
 	d.original_name, d.current_revision, d.thumbnail_path, d.added_at,
-	d.updated_at, d.last_opened_at, r.size AS file_size
+	d.updated_at, d.last_opened_at, d.last_page, r.size AS file_size
 `;
 const FROM = `FROM documents d
 	JOIN revisions r ON r.document_id = d.id AND r.number = d.current_revision`;
@@ -30,6 +30,7 @@ function toDocument(row, links) {
 		addedAt: row.added_at,
 		updatedAt: row.updated_at,
 		lastOpenedAt: row.last_opened_at,
+		lastPage: row.last_page,
 		tags: links.tags.get(row.id) ?? [],
 		collectionIds: links.collectionIds.get(row.id) ?? [],
 	};
@@ -165,6 +166,18 @@ function setCurrentRevision(
 		});
 }
 
+// Position de lecture (visionneuse) : sans toucher à updated_at, qui suit
+// les modifications du document, pas sa lecture.
+function setReadingPosition(id, { page }) {
+	getDb()
+		.prepare(
+			`UPDATE documents SET last_page = @page,
+				last_opened_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+			WHERE id = @id`,
+		)
+		.run({ id, page });
+}
+
 function markTextIndexed(id) {
 	getDb().prepare('UPDATE documents SET text_indexed = 1 WHERE id = ?').run(id);
 }
@@ -196,6 +209,7 @@ module.exports = {
 	create,
 	update,
 	setCurrentRevision,
+	setReadingPosition,
 	markTextIndexed,
 	findIdsToIndex,
 	remove,

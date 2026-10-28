@@ -1,4 +1,5 @@
 import { QueryCache, QueryClient, MutationCache } from '@tanstack/react-query';
+import { clearDocumentFileCache } from './documentFileCache';
 
 export const SESSION_QUERY_KEY = ['session'];
 export const DOCUMENTS_QUERY_KEY = ['documents'];
@@ -12,8 +13,10 @@ export const searchQueryKey = (query) => [...SEARCH_QUERY_KEY, query];
 export function createQueryClient() {
 	// Une requête qui reçoit 401 signifie que la session a expiré :
 	// on vide la session en cache, PrivateRoute redirige alors vers /login.
+	// Les PDF gardés en mémoire pour la visionneuse partent aussi.
 	function handleError(error) {
 		if (error?.status === 401) {
+			clearDocumentFileCache();
 			queryClient.setQueryData(SESSION_QUERY_KEY, null);
 		}
 	}

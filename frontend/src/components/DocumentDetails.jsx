@@ -1,15 +1,13 @@
 import { useMemo, useRef } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import ConfirmDialog from '../components/ConfirmDialog';
-import DocumentClassification from '../components/DocumentClassification';
-import DocumentMetadataForm from '../components/DocumentMetadataForm';
-import DocumentThumbnail from '../components/DocumentThumbnail';
-import RevisionHistory from '../components/RevisionHistory';
-import StatusMessage from '../components/StatusMessage';
+import { useNavigate } from 'react-router-dom';
+import ConfirmDialog from './ConfirmDialog';
+import DocumentClassification from './DocumentClassification';
+import DocumentMetadataForm from './DocumentMetadataForm';
+import DocumentThumbnail from './DocumentThumbnail';
+import RevisionHistory from './RevisionHistory';
 import { useCollections } from '../hooks/useCollections';
 import {
 	useDeleteDocument,
-	useDocument,
 	useDocuments,
 	useUpdateDocument,
 } from '../hooks/useDocuments';
@@ -20,17 +18,16 @@ import {
 	formatFileSize,
 	formatPageCount,
 } from '../utils/library';
-import './DocumentPage.css';
+import './DocumentDetails.css';
 
 const NONE = [];
 
-// 🔹 Fiche d'un document (/documents/:id) : vignette, informations,
-// téléchargement et suppression, métadonnées modifiables, classement
-// (collections, étiquettes) et historique des révisions. En T2, la
-// visionneuse prendra cette URL et la fiche deviendra un panneau.
-function DocumentPage() {
-	const { id } = useParams();
-	const document = useDocument(id);
+// 🔹 Fiche d'un document, dans le panneau « Informations » de la
+// visionneuse : vignette, informations, téléchargement et suppression (retour
+// à la bibliothèque), métadonnées modifiables, classement (collections,
+// étiquettes) et historique des révisions.
+function DocumentDetails({ document: data }) {
+	const { id } = data;
 	const collections = useCollections();
 	// Toute la bibliothèque : les étiquettes déjà utilisées sont suggérées.
 	const documents = useDocuments();
@@ -51,56 +48,39 @@ function DocumentPage() {
 		remove.mutate(id, { onSuccess: () => navigate('/', { replace: true }) });
 	}
 
-	if (document.isPending) {
-		return <StatusMessage>Chargement du document…</StatusMessage>;
-	}
-	if (document.isError) {
-		return (
-			<div className="document-page">
-				<StatusMessage>
-					{document.error.status === 404
-						? 'Ce document n’existe pas ou a été supprimé.'
-						: `Impossible de charger le document : ${document.error.message}`}
-				</StatusMessage>
-				<Link to="/">Retour à la bibliothèque</Link>
-			</div>
-		);
-	}
-
-	const data = document.data;
 	return (
-		<article className="document-page" aria-labelledby="document-page-title">
-			<Link to="/" className="document-page__back">
-				← Bibliothèque
-			</Link>
-			<div className="document-page__layout">
+		<article
+			className="document-details"
+			aria-labelledby="document-details-title"
+		>
+			<div className="document-details__layout">
 				<DocumentThumbnail
 					document={data}
-					className="document-page__thumbnail"
+					className="document-details__thumbnail"
 				/>
-				<div className="document-page__details">
-					<h1 id="document-page-title" className="document-page__title">
+				<div className="document-details__details">
+					<h2 id="document-details-title" className="document-details__title">
 						{data.title}
-					</h1>
+					</h2>
 					{data.isEncrypted && (
-						<p className="document-page__notice">
+						<p className="document-details__notice">
 							Ce PDF est protégé par un mot de passe : son contenu ne peut pas
 							être lu sans lui.
 						</p>
 					)}
-					<dl className="document-page__info">
+					<dl className="document-details__info">
 						<dt>Pages</dt>
 						<dd>{formatPageCount(data.pageCount)}</dd>
 						<dt>Taille</dt>
 						<dd>{formatFileSize(data.fileSize)}</dd>
 						<dt>Fichier d’origine</dt>
-						<dd className="document-page__file-name">{data.originalName}</dd>
+						<dd className="document-details__file-name">{data.originalName}</dd>
 						<dt>Ajouté le</dt>
 						<dd>{formatDate(data.addedAt)}</dd>
 						<dt>Modifié le</dt>
 						<dd>{formatDate(data.updatedAt)}</dd>
 					</dl>
-					<div className="document-page__actions">
+					<div className="document-details__actions">
 						<a
 							className="button button--primary"
 							href={documentsAPI.fileUrl(data.id)}
@@ -127,7 +107,7 @@ function DocumentPage() {
 						</button>
 					</div>
 					{remove.isError && (
-						<p className="document-page__error" role="alert">
+						<p className="document-details__error" role="alert">
 							Suppression impossible : {remove.error.message}
 						</p>
 					)}
@@ -135,12 +115,15 @@ function DocumentPage() {
 			</div>
 
 			<section
-				className="document-page__section"
-				aria-labelledby="document-page-metadata"
+				className="document-details__section"
+				aria-labelledby="document-details-metadata"
 			>
-				<h2 id="document-page-metadata" className="document-page__subtitle">
+				<h3
+					id="document-details-metadata"
+					className="document-details__subtitle"
+				>
 					Métadonnées
-				</h2>
+				</h3>
 				<DocumentMetadataForm
 					key={data.updatedAt}
 					document={data}
@@ -149,15 +132,15 @@ function DocumentPage() {
 			</section>
 
 			<section
-				className="document-page__section"
-				aria-labelledby="document-page-classification"
+				className="document-details__section"
+				aria-labelledby="document-details-classification"
 			>
-				<h2
-					id="document-page-classification"
-					className="document-page__subtitle"
+				<h3
+					id="document-details-classification"
+					className="document-details__subtitle"
 				>
 					Classement
-				</h2>
+				</h3>
 				<DocumentClassification
 					document={data}
 					collections={collections.data ?? NONE}
@@ -166,12 +149,15 @@ function DocumentPage() {
 			</section>
 
 			<section
-				className="document-page__section"
-				aria-labelledby="document-page-history"
+				className="document-details__section"
+				aria-labelledby="document-details-history"
 			>
-				<h2 id="document-page-history" className="document-page__subtitle">
+				<h3
+					id="document-details-history"
+					className="document-details__subtitle"
+				>
 					Historique
-				</h2>
+				</h3>
 				<RevisionHistory document={data} />
 			</section>
 
@@ -190,4 +176,4 @@ function DocumentPage() {
 	);
 }
 
-export default DocumentPage;
+export default DocumentDetails;

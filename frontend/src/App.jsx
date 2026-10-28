@@ -9,7 +9,7 @@ import StatusMessage from './components/StatusMessage';
 // visionneuse, avec MuPDF, ne doit pas alourdir la page de connexion).
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 const LibraryPage = lazy(() => import('./pages/LibraryPage'));
-const DocumentPage = lazy(() => import('./pages/DocumentPage'));
+const ViewerPage = lazy(() => import('./pages/ViewerPage'));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
 
 function App() {
@@ -21,8 +21,9 @@ function App() {
 					<Route element={<PrivateRoute />}>
 						<Route element={<AppLayout />}>
 							<Route index element={<LibraryPage />} />
-							<Route path="/documents/:id" element={<DocumentPage />} />
 						</Route>
+						{/* Plein écran : la visionneuse a sa propre barre d'outils. */}
+						<Route path="/documents/:id" element={<ViewerPage />} />
 					</Route>
 					<Route path="*" element={<NotFoundPage />} />
 				</Routes>

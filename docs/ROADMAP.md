@@ -39,16 +39,25 @@ Livrée en deux temps : **T1a** (import, fiche, grille et liste) puis **T1b** (r
 
 ## T2 : visionneuse
 
-- [ ] Moteur MuPDF.js dans un Web Worker, adaptateur `pdfEngine.js` (N)
-- [ ] Rendu des pages au fil du défilement (seules les pages visibles sont rendues), zoom (ajusté largeur / page / %), rotation d'affichage (N)
+Livrée en deux temps : **T2a** (lire : moteur, rendu, zoom, navigation, reprise) puis **T2b** (texte, recherche, signets, PDF protégés, présentation, impression). Choix : [ADR 0009](adr/0009-visionneuse.md).
+
+### T2a
+
+- [x] Moteur MuPDF.js dans un Web Worker, adaptateur `pdfEngine.js` (N)
+- [x] Visionneuse sur `/documents/:id`, en plein écran ; la fiche devient le panneau « Informations »
+- [x] Rendu des pages au fil du défilement continu (seules les pages proches de l'écran sont rendues), zoom (ajusté largeur / page / %, crans, pincement à deux doigts, Ctrl + molette), rotation d'affichage (N)
+- [x] Sommaire du PDF, panneau de miniatures, aller à la page (N)
+- [x] Reprise à la dernière page vue (serveur, tous appareils) ; zoom mémorisé par document sur l'appareil
+- [x] Raccourcis clavier : ← / → pages, Début / Fin, + / − / 0 (largeur), Échap
+- [x] PDF gardé en mémoire le temps de la session (3 au plus), avancement du téléchargement
+
+### T2b
+
 - [ ] Calque de texte : sélection et copie (N)
-- [ ] Recherche dans le document avec surlignage des résultats (N)
-- [ ] Sommaire du PDF, panneau de miniatures, aller à la page (N)
+- [ ] Recherche dans le document avec surlignage des résultats (N), raccourci Ctrl + F
 - [ ] Signets personnels (base)
-- [ ] Reprise à la dernière page vue
 - [ ] Ouverture des PDF protégés par mot de passe (saisie à l'ouverture) (N)
-- [ ] Mode présentation / plein écran, impression
-- [ ] Raccourcis clavier (pages, zoom, recherche)
+- [ ] Mode présentation / plein écran, page par page, impression
 
 ## T3 : annotations
 

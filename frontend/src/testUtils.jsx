@@ -34,6 +34,9 @@ export function mockFetch(routes) {
 		return {
 			ok: status >= 200 && status < 300,
 			status,
+			// Pas de Content-Length ni de flux : lu d'un bloc par arrayBuffer().
+			headers: new Headers(),
+			body: null,
 			json: async () => body,
 			// Fichiers (PDF) : un Blob passé tel quel dans `body`.
 			blob: async () => (body instanceof Blob ? body : new Blob([])),

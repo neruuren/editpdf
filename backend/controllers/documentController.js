@@ -104,6 +104,14 @@ exports.setDocumentCollections = (req, res) => {
 	res.status(200).json({ success: true, data: document });
 };
 
+// @desc    Enregistrer la page lue ({ page }) et la date d'ouverture
+// @route   PUT /api/v1/documents/:id/reading
+// @access  Private
+exports.setReadingPosition = (req, res) => {
+	const document = documentService.setReadingPosition(req.params.id, req.body);
+	res.status(200).json({ success: true, data: document });
+};
+
 // @desc    Supprimer un document (original, révisions et miniature compris)
 // @route   DELETE /api/v1/documents/:id
 // @access  Private

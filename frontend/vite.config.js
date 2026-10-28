@@ -61,6 +61,15 @@ export default defineConfig({
 			},
 		}),
 	],
+	// Worker du moteur PDF (workers/pdf.worker.js) en module ES : mupdf
+	// utilise le top-level await, que le format iife n'accepte pas.
+	worker: { format: 'es' },
+	// Top-level await de mupdf : navigateurs de 2021 et après (Chrome 89,
+	// Firefox 89, Safari 15).
+	build: { target: 'es2022' },
+	// mupdf trouve son WASM par new URL('mupdf-wasm.wasm', import.meta.url) :
+	// le pré-bundle de dev casserait ce chemin.
+	optimizeDeps: { exclude: ['mupdf'] },
 	server: {
 		proxy: {
 			'/api': 'http://localhost:3003',

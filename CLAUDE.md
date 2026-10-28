@@ -33,12 +33,13 @@ Le périmètre complet, découpé en tranches ordonnées, est dans **[docs/ROADM
 | T0 socle de code (couches, db, auth, PWA)      | ✅ fait (testé en vrai serveur et en image Docker) |
 | T1a bibliothèque : import, fiche, grille/liste | ✅ fait (testé en vrai serveur)                    |
 | T1b recherche, collections, révisions          | ✅ fait (testé en vrai serveur et en navigateur)   |
-| T2 visionneuse → T9                            | ⏳ voir [ROADMAP](docs/ROADMAP.md)                 |
+| T2a visionneuse : rendu, zoom, navigation      | ✅ fait (testé dans Chromium, bureau et mobile)    |
+| T2b texte, recherche, signets… → T9            | ⏳ voir [ROADMAP](docs/ROADMAP.md)                 |
 
 **Socle en place** (T0) :
 
 - backend : couches reprises d'ebookReader, `config/env.js` (refuse de démarrer sans `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `JWT_SECRET`), SQLite + migrations (`001_init.sql` : table `app_meta` seulement, le schéma métier arrive en T1), `/api/health` (vérifie la base), `/api/auth/{login,logout,me}` (cookie `editpdf_session`), `protect` sur tout `/api/v1` (aucune route métier encore : tout `/api/v1/*` répond 401 sans session, 404 avec), CSP adaptée au WASM, arrêt propre sur SIGTERM, scripts `hashPassword.js` / `checkAuth.js` ; `services/pdfService.js` (chargement de MuPDF, `hasPdfSignature`, `inspectPdf` : pages, titre, auteur et sujet ; un PDF protégé s'ouvre sans ses métadonnées chiffrées ; fichier qui n'est pas un PDF lisible → 422) et `testUtils/buildPdf.js` ;
-- frontend : `/login`, `/` (bibliothèque), `/documents/:id` (fiche), 404 ; en-tête collé en haut (logo + « editpdf » vers l'accueil, apparence, déconnexion ; sous 40rem, la déconnexion est dans un menu burger), bandeau « Hors ligne », apparence « Comme l'appareil » (défaut) / Clair / Sombre propre à l'appareil, PWA installable (manifest, icônes générées depuis `public/logo.svg`, service worker qui ne précache que le shell), spinner « Mise à jour en cours… » puis rechargement automatique après un déploiement.
+- frontend : `/login`, `/` (bibliothèque), `/documents/:id` (visionneuse, T2a), 404 ; en-tête collé en haut (logo + « editpdf » vers l'accueil, apparence, déconnexion ; sous 40rem, la déconnexion est dans un menu burger), bandeau « Hors ligne », apparence « Comme l'appareil » (défaut) / Clair / Sombre propre à l'appareil, PWA installable (manifest, icônes générées depuis `public/logo.svg`, service worker qui ne précache que le shell), spinner « Mise à jour en cours… » puis rechargement automatique après un déploiement.
 
 **Bibliothèque** (T1a) :
 
@@ -50,13 +51,27 @@ Le périmètre complet, découpé en tranches ordonnées, est dans **[docs/ROADM
 - backend : migration `003_search_collections_tags.sql` ; texte extrait par `pdfService.inspectPdf({ withText })` (par page, borné à 100 000 caractères par page, 5 millions par document, 2 000 pages et 15 secondes) et indexé dans `documents_fts` à l'import et à chaque nouvelle révision courante ; `GET /api/v1/search?q=` (`searchService` : mots d'au moins 2 lettres en préfixes `"mot"*`, tous requis, aucun opérateur FTS5 ne passe ; un résultat par document : page la plus pertinente, extrait aux mots entre `\u0002` et `\u0003`, nombre de pages trouvées) ; au démarrage, `indexPendingDocuments` indexe en tâche de fond les documents `text_indexed = 0` (importés avant T1b) ; `GET|POST /api/v1/collections`, `PATCH|DELETE /api/v1/collections/:id` (nom unique sans casse, 100 caractères) ; `PUT /api/v1/documents/:id/tags` (`{ tags }`, 50 au plus, 60 caractères) et `PUT …/:id/collections` (`{ collectionIds }`) ; chaque document de l'API porte `tags` (noms) et `collectionIds` ; `GET|POST /api/v1/documents/:id/revisions` (historique, nouvelle version), `POST …/revisions/:number/restore`, `DELETE …/revisions/:number` (`revisionService`, écritures sérialisées avec la suppression de document par `writeQueue`, miniature mise en place après l'enregistrement, rétention `REVISIONS_KEEP`, version identique refusée en 409) ; une révision n > 0 se télécharge sous « nom (révision n).pdf » ;
 - frontend : un seul champ « Rechercher » (métadonnées côté client + contenu côté serveur après 300 ms, `useContentSearch`), extrait surligné sur la carte ou la ligne (`DocumentSnippet`) ; barre de filtres (`LibraryFilters` : menu « Collection » avec le nombre de documents, puces d'étiquettes toutes requises, « Effacer les filtres ») ; recherche et filtres dans l'URL (`?q=…&collection=…&tag=…`, un filtre qui ne désigne plus rien est ignoré) ; gestion des collections dans un `<dialog>` (`CollectionsDialog`) ; sur la fiche, section « Classement » (`DocumentClassification` : cases des collections, création d'une collection, étiquettes avec suggestions) et section « Historique » (`RevisionHistory` : nouvelle version, téléchargement, restauration, suppression confirmée).
 
+**Visionneuse** (T2a, [ADR 0009](docs/adr/0009-visionneuse.md)) :
+
+- backend : migration `004_reading_position.sql` (`documents.last_page`) ; `PUT /api/v1/documents/:id/reading` (`{ page }`, entier ≥ 1, ramené au nombre de pages ; met aussi à jour `last_opened_at`, pas `updated_at`) ; chaque document de l'API porte `lastPage` ;
+- frontend : `/documents/:id` ouvre la visionneuse en plein écran (hors `AppLayout`, avec sa propre barre d'outils : retour, navigation, titre, page précédente / champ « Page » / suivante, zoom − / menu / +, rotation, téléchargement, « Informations ») ;
+  - **moteur** : `workers/pdf.worker.js` (mupdf par `import()` dynamique, file de rendus annulable), `workers/pdfRenderer.js` (ouverture, dimensions, sommaire, rendu RGBA borné à 16 Mpx, rotation ; testé sous Node avec le vrai MuPDF), `utils/pdfEngine.js` (seul point d'accès) ;
+  - **fichier** : `utils/documentFileCache.js` télécharge le PDF avec son avancement et en garde 3 en mémoire pour la session ;
+  - **défilement continu** : `PdfPages`, positions calculées par `utils/viewer.js` ; seules les pages proches de l'écran sont rendues (`PdfPageView`, canvas à la résolution de l'écran, 80 ms d'attente) ;
+  - **zoom** : Largeur (défaut), Page entière, 50 % à 400 %, crans de 10 % à 800 % ; il reste ancré sur le centre ou sous les doigts (pincement par touch events, Ctrl + molette) ;
+  - **panneaux** : navigation (`ViewerSidebar` : miniatures rendues à la demande `PdfThumbnail`, sommaire `OutlineList`) et « Informations » (`DocumentDetails`, l'ancienne fiche), à côté des pages au-dessus de 48rem, par-dessus en dessous ;
+  - **reprise** : dernière page vue envoyée au serveur 2 s après chaque changement et au `pagehide` (`useReadingPosition`, keepalive) ; zoom par document en localStorage (`utils/viewerZoomStore.js`, `editpdf-viewer-zoom`, 200 documents) ;
+  - **raccourcis** : ← / →, Début / Fin, + / − / 0 (aussi avec Ctrl), Échap ;
+  - un PDF protégé par mot de passe n'est pas encore ouvert (T2b) : la fiche s'affiche à la place ;
+  - **PDF hostile** (revue T2a) : dimensions des pages ramenées entre 1 et 14 400 points, rendu borné à 16 Mpx et 8 192 px de côté, sommaire borné (32 niveaux, 5 000 entrées, titres de 300 caractères, illisible = absent), au plus 24 pages et quelques miniatures montées à la fois ; les PDF en mémoire sont oubliés à la déconnexion et sur un 401.
+
 ## Stack
 
 - **Node 24.22.1 (LTS)** : `.nvmrc`, `engines` (`24.x`) et images Docker (`node:24.22.1-*`).
 - **Moteur PDF : MuPDF.js** (paquet npm `mupdf`, Artifex, WebAssembly, AGPL-3.0-or-later), utilisé **des deux côtés** : navigateur et Node. Voir [ADR 0001](docs/adr/0001-moteur-mupdf-et-licence-agpl.md) et [ADR 0002](docs/adr/0002-traitement-hybride-navigateur-serveur.md).
   - ⚠️ `mupdf` est un module ESM avec top-level await. **Le backend (CommonJS) ne peut pas le `require()`** (`ERR_REQUIRE_ASYNC_MODULE`). Il est chargé par `await import('mupdf')`, une seule fois, dans `services/pdfService.js` (`loadMupdf()`).
   - ⚠️ Sous **Jest 29**, cet `import()` exige `--experimental-vm-modules` : le script `test` du backend lance donc `node --experimental-vm-modules --disable-warning=ExperimentalWarning node_modules/jest/bin/jest.js`. Ne pas le remplacer par un simple `jest`.
-  - Le binaire WASM pèse environ 10 Mo. Côté front, il est chargé à la demande dans un Web Worker, jamais dans le bundle principal.
+  - Le binaire WASM pèse environ 10 Mo. Côté front, il est chargé à la demande dans un Web Worker, jamais dans le bundle principal. ⚠️ Dans le worker, `mupdf` est importé par `import()` dynamique, pas par un import statique : son top-level await retarderait `onmessage` et les premiers messages seraient perdus.
 - **Outils système** (dans l'image Docker, appelés par `child_process.execFile`, jamais via un shell) : `qpdf`, `ghostscript`, `ocrmypdf` + `tesseract-ocr-fra`/`-eng` + `pngquant`. Pas de LibreOffice pour l'instant (T9).
 - **Backend** (CommonJS) : Express 4, helmet, cors, dotenv, `better-sqlite3` 13 (FTS5 pour la recherche plein texte), `bcryptjs` 3, `jsonwebtoken` 9, `cookie-parser`, `express-rate-limit` 8, `multer` 2 (≥ 2.4 : les versions antérieures sont vulnérables). Tests avec Jest + supertest.
 - **Frontend** (ESM) : React 19, Vite 6, `react-router-dom` 7, `@tanstack/react-query` 5 (état serveur, y compris la session), `mupdf`, `vite-plugin-pwa` 2. En dev : `@vite-pwa/assets-generator`, `@testing-library/user-event`. Tests avec Vitest + Testing Library (jsdom).
@@ -73,7 +88,7 @@ Monorepo **sans workspaces** : le `package.json` racine orchestre deux packages 
 
 ### Répartition du travail PDF (ADR 0002)
 
-- **Navigateur** : tout ce qui est interactif. Rendu des pages, sélection et recherche de texte, annotations, édition de texte, réorganisation visuelle des pages, formulaires. MuPDF.js y tourne dans un **Web Worker**, et le reste de l'app ne le voit qu'à travers l'adaptateur `utils/pdfEngine.js` (cible). L'enregistrement **envoie le PDF modifié** au serveur, qui en fait une nouvelle **révision**.
+- **Navigateur** : tout ce qui est interactif. Rendu des pages, sélection et recherche de texte, annotations, édition de texte, réorganisation visuelle des pages, formulaires. MuPDF.js y tourne dans un **Web Worker**, et le reste de l'app ne le voit qu'à travers l'adaptateur `utils/pdfEngine.js`. L'enregistrement **envoie le PDF modifié** au serveur, qui en fait une nouvelle **révision**.
 - **Serveur** : tout ce qui doit être fiable, long ou hors de portée du navigateur. Validation à l'upload, miniatures, extraction du texte pour l'index FTS5, opérations par lots (fusion de plusieurs documents de la bibliothèque), **traitements** longs en tâche de fond (OCR, compression, chiffrement : qpdf, Ghostscript, OCRmyPDF).
 - Un **traitement** serveur est un job : il est créé par l'API, exécuté hors de la requête HTTP (file en mémoire, un seul à la fois, persistée dans la table `jobs`), et son état est interrogé par le frontend. Son résultat est toujours une nouvelle révision, jamais un écrasement.
 
@@ -129,7 +144,7 @@ backend/
   - nom de fichier du client : gardé seulement pour l'affichage et le téléchargement (sans chemin, caractère de contrôle ni marque bidi `\p{Cf}`, 255 caractères), jamais pour un chemin disque ; multer lit les noms en UTF-8 (`defParamCharset`) ;
   - miniature bornée à 480 × 960 pixels quelle que soit la taille annoncée de la page ;
   - `app.set('trust proxy', ['loopback', 'uniquelocal'])` derrière nginx (dans Docker, les requêtes arrivent par la passerelle du bridge 172.x.0.1) ;
-  - CSP helmet : `script-src 'self' 'wasm-unsafe-eval'` (indispensable à MuPDF WASM), `worker-src 'self'` (le worker est un fichier servi par l'app ; ajouter `blob:` seulement si T2 l'exige), `img-src 'self' blob: data:`, `style-src 'self' 'unsafe-inline'` sans `https:` ; rien d'autre d'élargi (testé dans `server.test.js`) ;
+  - CSP helmet : `script-src 'self' 'wasm-unsafe-eval'` (indispensable à MuPDF WASM), `worker-src 'self'` (le worker de module est un fichier servi par l'app ; T2a n'a pas eu besoin de `blob:`, vérifié dans Chromium sous la CSP de prod), `img-src 'self' blob: data:`, `style-src 'self' 'unsafe-inline'` sans `https:` ; rien d'autre d'élargi (testé dans `server.test.js`) ;
   - CORS activé seulement si `CORS_ORIGIN` est non vide.
 - **Cache HTTP** : `frontend/dist/assets/` (fichiers hashés, dont le WASM) en `immutable` un an ; `index.html`, `sw.js` et manifest toujours revalidés.
 
@@ -138,17 +153,20 @@ backend/
 ```
 frontend/
 ├── index.html           # lang="fr", theme-color clair/sombre (= --color-surface), favicon, app-theme.js avant le rendu
-├── vite.config.js       # react + VitePWA (autoUpdate, injectRegister: false, manifest inline, précache du shell seul, WASM compris jusqu'à 16 Mo, navigateFallback sauf /api), proxy /api → :3003
+├── vite.config.js       # react + VitePWA (autoUpdate, injectRegister: false, manifest inline, précache du shell seul, WASM compris jusqu'à 16 Mo, navigateFallback sauf /api), proxy /api → :3003,
+│                        # worker.format 'es' + build.target es2022 (top-level await de mupdf), optimizeDeps.exclude mupdf (chemin de son WASM)
 ├── pwa-assets.config.js # icônes PWA depuis public/logo.svg (fond rouge #c62828 pour les maskable)
 ├── public/              # logo.svg (⚠️ pas de « -- » dans ses commentaires XML : sharp refuse le fichier), icônes générées, app-theme.js
 └── src/
     ├── main.jsx, App.jsx    # QueryClientProvider, BrowserRouter, routes (pages en lazy), AppUpdateOverlay
-    ├── pages/               # LoginPage, LibraryPage, DocumentPage (fiche, /documents/:id ; la visionneuse prendra cette URL en T2), NotFoundPage
+    ├── pages/               # LoginPage, LibraryPage, ViewerPage (/documents/:id, plein écran), NotFoundPage
     ├── components/          # AppLayout, AppThemeMenu, AppUpdateOverlay, PrivateRoute, StatusMessage, ConfirmDialog (copié d'ebookReader),
-    │                        # DocumentGrid, DocumentTable, DocumentThumbnail, DocumentSnippet, DocumentMetadataForm, DocumentClassification, RevisionHistory,
-    │                        # LibraryFilters, CollectionsDialog, UploadReport : un composant par fichier + son .css
+    │                        # DocumentGrid, DocumentTable, DocumentThumbnail, DocumentSnippet, DocumentDetails (la fiche), DocumentMetadataForm, DocumentClassification, RevisionHistory,
+    │                        # LibraryFilters, CollectionsDialog, UploadReport,
+    │                        # PdfViewer, ViewerToolbar, ViewerSidebar, PdfPages, PdfPageView, PdfThumbnail, OutlineList (visionneuse) : un composant par fichier + son .css
     ├── hooks/               # useAuth (useSession, useLogin, useLogout), useDocuments (liste, fiche, import par lot, modification, étiquettes, collections, suppression),
     │                        # useCollections, useRevisions (historique, nouvelle version, restauration, suppression), useContentSearch (recherche dans le contenu, 300 ms),
+    │                        # usePdfDocument (téléchargement + ouverture dans le moteur), useReadingPosition (page lue envoyée au serveur),
     │                        # useFileDrop (copié d'ebookReader), useStoredChoice (choix d'affichage en localStorage), useAppTheme, useAppUpdate, useOnlineStatus
     ├── pwa/                 # registerServiceWorker.js (module virtuel, jamais importé par les tests), appUpdate.js (spinner + rechargement)
     ├── utils/
@@ -156,8 +174,11 @@ frontend/
     │   ├── library.js       # tri et filtres de la bibliothèque (recherche, collection, étiquettes), comptes, découpage des extraits, formats (taille, date, pages)
     │   ├── appTheme.js      # apparence de l'appareil (localStorage `editpdf-app-theme`), en phase avec public/app-theme.js
     │   ├── queryClient.js   # createQueryClient (401 → session vidée), clés de requête (['session'], ['documents'], ['documents', id], ['documents', id, 'revisions'], ['collections'], ['search', q])
-    │   └── pdfEngine.js     # (cible) SEUL point d'accès à MuPDF.js : pilote le worker, expose ouvrir / rendre une page / chercher / annoter / éditer / enregistrer
-    ├── workers/pdf.worker.js # (cible) charge mupdf (WASM) à la demande, exécute les commandes de pdfEngine
+    │   ├── viewer.js        # calculs de la visionneuse : zoom, mise en page des pages, page courante, ancrage
+    │   ├── viewerZoomStore.js # zoom par document sur l'appareil
+    │   ├── documentFileCache.js # PDF téléchargés, gardés en mémoire (3) le temps de la session
+    │   └── pdfEngine.js     # SEUL point d'accès à MuPDF.js : pilote le worker ; openPdf() → pages, sommaire, renderPage(), close() ; (cible) chercher / annoter / éditer / enregistrer
+    ├── workers/             # pdf.worker.js (charge mupdf par import() à la première ouverture, file de rendus annulable), pdfRenderer.js (le travail MuPDF, testé sous Node)
     ├── testUtils.jsx        # renderWithProviders, mockFetch
     └── index.css            # tokens globaux (custom properties, light-dark()), reset, primitives (.button, .field, .spinner, .visually-hidden)
 ```
@@ -174,17 +195,17 @@ frontend/
 
 Dates en TEXT ISO 8601 UTC. Ids en TEXT (UUID générés côté serveur), sauf `tags.id` (entier interne, jamais exposé : l'API désigne une étiquette par son nom). Suppressions en cascade sur les liaisons. Existent aujourd'hui : `schema_migrations`, `app_meta` (clé / valeur, réglages internes : `sessions_valid_after`), `documents` et `revisions` (migration 002), `documents_fts`, `collections`, `document_collections`, `tags`, `document_tags` (migration 003). `bookmarks` et `jobs` sont la **cible** de T2 et T7 ; leur schéma exact sera fixé avec leur code.
 
-| Table                   | Rôle                                                                                                                                                                                                                                                                             |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `documents`             | id, title, author, subject, page_count, is_encrypted, original_name, original_hash (UNIQUE, dédoublonnage), current_revision (0 = original), thumbnail_path, added_at, updated_at, last_opened_at, text_indexed (0 = à indexer au démarrage) ; (cible T2) dernière page vue      |
-| `revisions`             | document_id, number (0 = l'original), path, size, hash, origin (`upload` : original ou nouvelle version, `restore`, puis `edit`, `ocr`, `compress`…), note, restored_from, created_at ; clé (document_id, number) ([ADR 0006](docs/adr/0006-stockage-documents-et-revisions.md)) |
-| `collections`           | id, name, name_key (UNIQUE : nom en minuscules, calculé par le serveur), created_at                                                                                                                                                                                              |
-| `document_collections`  | liaison n-n (document_id, collection_id)                                                                                                                                                                                                                                         |
-| `tags`, `document_tags` | étiquettes libres (id, name, name_key UNIQUE), liaison n-n ; une étiquette que plus aucun document ne porte est supprimée (trigger `tags_remove_unused`)                                                                                                                         |
-| `bookmarks`             | signets personnels (document, page, libellé), distincts du sommaire du PDF                                                                                                                                                                                                       |
-| `jobs`                  | traitements serveur : type, document, paramètres JSON, état, progression, erreur, révision produite                                                                                                                                                                              |
-| `documents_fts`         | table virtuelle FTS5 (`unicode61 remove_diacritics 2`) : document_id, page, body ; une ligne par page qui contient du texte, celui de la révision courante (le titre est cherché côté client) ; vidée par le trigger `documents_fts_cascade`                                     |
-| `schema_migrations`     | version du schéma                                                                                                                                                                                                                                                                |
+| Table                   | Rôle                                                                                                                                                                                                                                                                                |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `documents`             | id, title, author, subject, page_count, is_encrypted, original_name, original_hash (UNIQUE, dédoublonnage), current_revision (0 = original), thumbnail_path, added_at, updated_at, last_opened_at, text_indexed (0 = à indexer au démarrage), last_page (reprise de la visionneuse) |
+| `revisions`             | document_id, number (0 = l'original), path, size, hash, origin (`upload` : original ou nouvelle version, `restore`, puis `edit`, `ocr`, `compress`…), note, restored_from, created_at ; clé (document_id, number) ([ADR 0006](docs/adr/0006-stockage-documents-et-revisions.md))    |
+| `collections`           | id, name, name_key (UNIQUE : nom en minuscules, calculé par le serveur), created_at                                                                                                                                                                                                 |
+| `document_collections`  | liaison n-n (document_id, collection_id)                                                                                                                                                                                                                                            |
+| `tags`, `document_tags` | étiquettes libres (id, name, name_key UNIQUE), liaison n-n ; une étiquette que plus aucun document ne porte est supprimée (trigger `tags_remove_unused`)                                                                                                                            |
+| `bookmarks`             | signets personnels (document, page, libellé), distincts du sommaire du PDF                                                                                                                                                                                                          |
+| `jobs`                  | traitements serveur : type, document, paramètres JSON, état, progression, erreur, révision produite                                                                                                                                                                                 |
+| `documents_fts`         | table virtuelle FTS5 (`unicode61 remove_diacritics 2`) : document_id, page, body ; une ligne par page qui contient du texte, celui de la révision courante (le titre est cherché côté client) ; vidée par le trigger `documents_fts_cascade`                                        |
+| `schema_migrations`     | version du schéma                                                                                                                                                                                                                                                                   |
 
 Les **annotations** ne sont pas en base : elles vivent **dans le PDF** (objets d'annotation standard), pour rester lisibles dans n'importe quel lecteur.
 
@@ -266,6 +287,7 @@ Voir [ADR 0005](docs/adr/0005-deploiement-docker-vps.md). Fichiers : [Dockerfile
 - **Revue de sécurité du socle T0** (agent SecurityReviewer, 2026-10-28) : rien de critique ni d'élevé. Faits en T1a : CORS fermé par défaut en prod, révocation des sessions au logout, contrôle d'origine. Reste à décider : le déploiement SSH utilise `StrictHostKeyChecking=no` (hérité d'ebookReader) ; piste, un secret `VPS_KNOWN_HOSTS` et `webfactory/ssh-agent` épinglé sur un SHA.
 - **MuPDF synchrone** : à l'import et à chaque nouvelle révision, l'ouverture du PDF, le rendu de la miniature et l'extraction du texte bloquent la boucle d'événements de Node (quelques dizaines de ms par page en général ; l'extraction est bornée à 2 000 pages et 15 s depuis la revue T1b). Acceptable pour un seul utilisateur ; à déplacer dans un `worker_thread` (avec délai maximal) si l'import de gros lots ou de PDF hostiles le rend gênant, au plus tard avec la file de traitements (T7). Revue de sécurité T1a : c'est le seul constat moyen (un PDF piégé peut figer l'app et gonfler la mémoire WASM) ; envisager aussi un `mem_limit` dans `docker-compose.yml`, à dimensionner selon le VPS.
 - **Revue de sécurité T1b** (2026-10-28) : rien de critique ni d'élevé ; corrigés : bornes de l'extraction (moyen), suppression de document pendant une révision, miniature mise en place après l'enregistrement, coût des recherches très larges, `no-store` sur l'API. Restent : les termes cherchés apparaissent dans les journaux d'accès nginx (`/api/v1/search?q=…`) et dans l'URL de la bibliothèque (historique du navigateur, `replace` évite d'empiler chaque frappe) ; piste, un `log_format` nginx sans query string pour `/api/`. Un document qui ferait planter le processus pendant l'indexation de démarrage serait retenté à chaque démarrage (non observé : MuPDF lève des exceptions rattrapables).
+- **Revue de sécurité T2a** (2026-10-28) : rien de critique ni d'élevé ; corrigés : rendu d'une page piégée très allongée (moyen), montage de toutes les pages d'un très gros PDF (moyen), sommaire piégé, PDF gardés en mémoire après la déconnexion, copie inutile du fichier. CSP inchangée (aucun `blob:` ni `'unsafe-eval'` nécessaire). Reste à décider : un **nombre maximal de pages à l'import** (le serveur accepte tout ; un PDF de centaines de milliers de pages vides ralentit l'ouverture, faite dans le worker sans délai maximal).
 - `npm audit` : 0 vulnérabilité en prod. Reste une alerte `deepmerge` **dev uniquement** (via jest 29 et workbox-build), sans correctif disponible pour l'instant.
 - Édition du texte existant : approche à valider en début de T4 ([ADR 0007](docs/adr/0007-edition-du-texte-existant.md), statut proposé).
 - Stockage des révisions : rétention et éventuelle compression des anciennes révisions à confirmer ([ADR 0006](docs/adr/0006-stockage-documents-et-revisions.md), statut proposé).

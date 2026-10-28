@@ -13,6 +13,7 @@ const {
 	getDocumentFile,
 	setDocumentTags,
 	setDocumentCollections,
+	setReadingPosition,
 } = require('../controllers/documentController');
 
 router.param('id', uuidParam('Document non trouvé'));
@@ -30,5 +31,6 @@ router.get('/:id/thumbnail', getDocumentThumbnail);
 router.get('/:id/file', getDocumentFile);
 router.put('/:id/tags', setDocumentTags);
 router.put('/:id/collections', setDocumentCollections);
+router.put('/:id/reading', setReadingPosition);
 
 module.exports = router;

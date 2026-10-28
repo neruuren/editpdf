@@ -1,0 +1,47 @@
+.outline-list {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.outline-list .outline-list {
+	padding-inline-start: var(--space-4);
+}
+
+.outline-list__entry {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	inline-size: 100%;
+	min-block-size: var(--tap-size);
+	padding: var(--space-1) var(--space-2);
+	border: 0;
+	border-radius: var(--radius-sm);
+	font: inherit;
+	text-align: start;
+	color: var(--color-text);
+	background: none;
+}
+
+.outline-list__link {
+	cursor: pointer;
+}
+
+.outline-list__link:hover {
+	background: var(--color-bg);
+}
+
+.outline-list__link:focus-visible {
+	outline: 3px solid var(--color-accent);
+	outline-offset: -3px;
+}
+
+.outline-list__title {
+	flex: 1;
+	overflow-wrap: anywhere;
+}
+
+.outline-list__page {
+	font-size: 0.875em;
+	color: var(--color-text-muted);
+}

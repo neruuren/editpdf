@@ -12,12 +12,14 @@ export class ApiError extends Error {
 
 // Renvoie `data` de la réponse { success, data } ; lève une ApiError sinon.
 // Un FormData part tel quel : le navigateur pose lui-même le Content-Type
-// multipart avec sa boundary.
-async function request(path, { method = 'GET', body } = {}) {
+// multipart avec sa boundary. `keepalive` : la requête survit à la
+// fermeture de la page (position de lecture enregistrée en partant).
+async function request(path, { method = 'GET', body, keepalive } = {}) {
 	const isFormData = body instanceof FormData;
 	const response = await fetch(`/api${path}`, {
 		method,
 		credentials: 'same-origin',
+		keepalive,
 		headers:
 			body && !isFormData ? { 'Content-Type': 'application/json' } : undefined,
 		body: body && !isFormData ? JSON.stringify(body) : body,
@@ -61,6 +63,13 @@ export const documentsAPI = {
 	update: ({ id, changes }) =>
 		request(documentPath(id), { method: 'PATCH', body: changes }),
 	remove: (id) => request(documentPath(id), { method: 'DELETE' }),
+	// Page lue dans la visionneuse (1 = première) : reprise et date d'ouverture.
+	setReading: ({ id, page, keepalive }) =>
+		request(`${documentPath(id)}/reading`, {
+			method: 'PUT',
+			body: { page },
+			keepalive,
+		}),
 	setTags: ({ id, tags }) =>
 		request(`${documentPath(id)}/tags`, { method: 'PUT', body: { tags } }),
 	setCollections: ({ id, collectionIds }) =>

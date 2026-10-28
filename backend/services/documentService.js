@@ -252,8 +252,26 @@ function setDocumentCollections(id, body) {
 	return Document.findById(id);
 }
 
+// 🔹 Corps { page } : page à reprendre à la prochaine ouverture, sur tous
+// les appareils (le zoom, propre à l'écran, reste sur l'appareil). Met aussi
+// à jour la date de dernière ouverture. Une page au-delà de la fin
+// (révision plus courte) est ramenée à la dernière.
+function setReadingPosition(id, body) {
+	const document = Document.findById(id);
+	if (!document) throw new ErrorResponse('Document non trouvé', 404);
+	const { page } = body ?? {};
+	if (!Number.isInteger(page) || page < 1) {
+		throw new ErrorResponse('Page invalide', 400);
+	}
+	Document.setReadingPosition(id, {
+		page: Math.min(page, document.pageCount),
+	});
+	return Document.findById(id);
+}
+
 module.exports = {
 	importDocument,
+	setReadingPosition,
 	deleteDocument,
 	updateDocument,
 	setDocumentTags,

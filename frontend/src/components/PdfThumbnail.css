@@ -1,0 +1,39 @@
+.pdf-thumbnail {
+	position: absolute;
+	inset-inline: 0;
+	display: grid;
+	align-content: center;
+	justify-items: center;
+	gap: var(--space-1);
+	padding: var(--space-1);
+	border: 2px solid transparent;
+	border-radius: var(--radius-md);
+	font: inherit;
+	color: var(--color-text-muted);
+	background: none;
+	cursor: pointer;
+}
+
+.pdf-thumbnail:hover {
+	background: var(--color-bg);
+}
+
+.pdf-thumbnail:focus-visible {
+	outline: 3px solid var(--color-accent);
+	outline-offset: -3px;
+}
+
+.pdf-thumbnail[aria-current='page'] {
+	border-color: var(--color-primary);
+	color: var(--color-text);
+	font-weight: 600;
+}
+
+.pdf-thumbnail__canvas {
+	background: #ffffff;
+	box-shadow: var(--shadow);
+}
+
+.pdf-thumbnail__number {
+	font-size: 0.875em;
+}
