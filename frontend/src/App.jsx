@@ -1,30 +1,32 @@
-import { useEffect, useState } from 'react';
-import './App.css';
+import { lazy, Suspense } from 'react';
+import { Route, Routes } from 'react-router-dom';
+import AppLayout from './components/AppLayout';
+import AppUpdateOverlay from './components/AppUpdateOverlay';
+import PrivateRoute from './components/PrivateRoute';
+import StatusMessage from './components/StatusMessage';
+
+// Pages chargées à la demande : chaque page = son propre chunk (la future
+// visionneuse, avec MuPDF, ne doit pas alourdir la page de connexion).
+const LoginPage = lazy(() => import('./pages/LoginPage'));
+const LibraryPage = lazy(() => import('./pages/LibraryPage'));
+const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
 
 function App() {
-	const [message, setMessage] = useState('');
-	const [error, setError] = useState(null);
-
-	useEffect(() => {
-		fetch('/api/message')
-			.then((response) => {
-				if (!response.ok) {
-					throw new Error(`Request failed with status ${response.status}`);
-				}
-				return response.json();
-			})
-			.then((data) => setMessage(data.text))
-			.catch((err) => {
-				console.error('Error fetching message:', err);
-				setError('Unable to load the message from the backend.');
-			});
-	}, []);
-
 	return (
-		<div>
-			<h1>Message from Backend</h1>
-			{error ? <p role="alert">{error}</p> : <p>{message}</p>}
-		</div>
+		<>
+			<Suspense fallback={<StatusMessage>Chargement…</StatusMessage>}>
+				<Routes>
+					<Route path="/login" element={<LoginPage />} />
+					<Route element={<PrivateRoute />}>
+						<Route element={<AppLayout />}>
+							<Route index element={<LibraryPage />} />
+						</Route>
+					</Route>
+					<Route path="*" element={<NotFoundPage />} />
+				</Routes>
+			</Suspense>
+			<AppUpdateOverlay />
+		</>
 	);
 }
 

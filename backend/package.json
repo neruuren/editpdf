@@ -5,7 +5,7 @@
 	"scripts": {
 		"dev": "npx nodemon server.js",
 		"lint": "eslint .",
-		"test": "jest",
+		"test": "node --experimental-vm-modules --disable-warning=ExperimentalWarning node_modules/jest/bin/jest.js",
 		"start": "node server.js"
 	},
 	"author": "Grégory Day : gregory.day@etik.com",

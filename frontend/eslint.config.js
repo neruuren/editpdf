@@ -5,7 +5,10 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 
 export default [
-	{ ignores: ['dist'] },
+	// Code tiers figé : style d'origine conservé (voir son README).
+	// Préfixe **/ : lint-staged lance ESLint depuis la racine du dépôt avec
+	// --config, et les motifs sont alors résolus depuis la racine, pas depuis frontend/.
+	{ ignores: ['**/dist', '**/dev-dist', '**/src/vendor/foliate-js/'] },
 	{
 		files: ['**/*.{js,jsx}'],
 		languageOptions: {
@@ -29,6 +32,8 @@ export default [
 			...react.configs['jsx-runtime'].rules,
 			...reactHooks.configs.recommended.rules,
 			'react/jsx-no-target-blank': 'off',
+			// React 19 ne vérifie plus les propTypes à l'exécution : règle sans objet.
+			'react/prop-types': 'off',
 			'react-refresh/only-export-components': [
 				'warn',
 				{ allowConstantExport: true },

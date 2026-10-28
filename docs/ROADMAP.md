@@ -8,14 +8,14 @@ Légende : `[x]` fait, `[ ]` à faire. Côté : **N** = navigateur (MuPDF.js), *
 
 ## T0 : socle de code
 
-- [ ] `config/env.js` (seul lecteur de `process.env`) et `config/db.js` (better-sqlite3, WAL, migrations)
-- [ ] Découpage de `server.js` en couches (routes, controllers, services, models, middleware, utils), comme ebookReader
-- [ ] `/api/health` qui vérifie la base
-- [ ] Auth mono-utilisateur reprise d'ebookReader (login, logout, me, `protect`, rate-limit, scripts `hashPassword` / `checkAuth`)
-- [ ] CSP helmet adaptée au WASM (`'wasm-unsafe-eval'`, `worker-src 'self' blob:`)
-- [ ] Frontend : routeur, React Query, page de connexion, mise en page (en-tête), thème clair/sombre
-- [ ] PWA simple : manifest, icônes (depuis `public/logo.svg`), service worker minimal sans cache des données (ADR 0008)
-- [ ] `pdfService` : chargement de `mupdf` par `import()` dynamique, et ses tests ; `testUtils/buildPdf.js`
+- [x] `config/env.js` (seul lecteur de `process.env`) et `config/db.js` (better-sqlite3, WAL, migrations)
+- [x] Découpage de `server.js` en couches (routes, controllers, services, models, middleware, utils), comme ebookReader
+- [x] `/api/health` qui vérifie la base
+- [x] Auth mono-utilisateur reprise d'ebookReader (login, logout, me, `protect`, rate-limit, scripts `hashPassword` / `checkAuth`)
+- [x] CSP helmet adaptée au WASM (`'wasm-unsafe-eval'`, `worker-src 'self'`)
+- [x] Frontend : routeur, React Query, page de connexion, mise en page (en-tête), apparence (appareil / clair / sombre)
+- [x] PWA simple : manifest, icônes (depuis `public/logo.svg`), service worker minimal sans cache des données (ADR 0008)
+- [x] `pdfService` : chargement de `mupdf` par `import()` dynamique, et ses tests ; `testUtils/buildPdf.js`
 
 ## T1 : bibliothèque
 

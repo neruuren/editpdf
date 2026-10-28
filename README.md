@@ -16,6 +16,7 @@ Gestionnaire de PDF **personnel** : bibliothèque de documents, lecture, annotat
 nvm use                         # Node 24.22.1 (.nvmrc)
 npm install                     # racine, puis backend/ et frontend/ (postinstall)
 cp backend/.env.example backend/.env
+node backend/scripts/hashPassword.js   # puis remplir AUTH_USERNAME, AUTH_PASSWORD_HASH, JWT_SECRET
 npm run startDev                # backend :3003 + frontend :5173
 ```
 

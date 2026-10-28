@@ -1,68 +1,224 @@
+/* =====================================================================
+   Styles globaux : reset minimal, tokens (custom properties), primitives.
+   Le style propre à chaque composant vit dans son fichier .css à côté de lui.
+   ===================================================================== */
+
 :root {
-	font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-	line-height: 1.5;
-	font-weight: 400;
-
+	/* light-dark() suit color-scheme : celui de l'appareil par défaut, ou
+	   celui imposé par l'apparence choisie (data-theme, voir plus bas). */
 	color-scheme: light dark;
-	color: rgba(255, 255, 255, 0.87);
-	background-color: #242424;
 
-	font-synthesis: none;
-	text-rendering: optimizeLegibility;
-	-webkit-font-smoothing: antialiased;
-	-moz-osx-font-smoothing: grayscale;
+	/* Couleurs : thème clair, thème sombre. Primaire bleu ardoise : le rouge
+	   du logo reste réservé à l'identité et le rouge vif aux actions
+	   destructrices (--color-danger). */
+	--color-bg: light-dark(#f4f5f7, #13161b);
+	/* --color-surface : aussi la couleur des barres système (index.html,
+	   utils/appTheme.js, public/app-theme.js). */
+	--color-surface: light-dark(#ffffff, #1b1f26);
+	--color-text: light-dark(#1c2230, #e6e8ec);
+	--color-text-muted: light-dark(#596173, #a2a9b6);
+	--color-border: light-dark(#d9dde4, #2f3541);
+	--color-primary: light-dark(#2f4a7a, #9db8ea);
+	--color-primary-contrast: light-dark(#ffffff, #0f1830);
+	--color-brand: #c62828;
+	--color-accent: #e08a1e;
+	--color-danger: light-dark(#b42318, #ff8a7a);
+	--shadow:
+		0 1px 2px light-dark(rgb(0 0 0 / 0.06), rgb(0 0 0 / 0.4)),
+		0 4px 16px light-dark(rgb(0 0 0 / 0.06), transparent);
+
+	/* Espacements */
+	--space-1: 0.25rem;
+	--space-2: 0.5rem;
+	--space-3: 0.75rem;
+	--space-4: 1rem;
+	--space-5: 1.5rem;
+	--space-6: 2.5rem;
+
+	/* Rayons */
+	--radius-sm: 6px;
+	--radius-md: 12px;
+	--radius-lg: 16px;
+
+	/* Typographie fluide de l'interface */
+	--font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+	--font-size-base: clamp(1rem, 0.95rem + 0.25vw, 1.0625rem);
+	--font-size-lg: clamp(1.125rem, 1.05rem + 0.35vw, 1.25rem);
+	--font-size-xl: clamp(1.5rem, 1.3rem + 1vw, 2rem);
+
+	--content-max-width: 72rem;
+	/* Cible tactile minimale */
+	--tap-size: 2.75rem;
 }
 
-a {
-	font-weight: 500;
-	color: #646cff;
-	text-decoration: inherit;
+/* Apparence imposée (utils/appTheme.js) ; sans data-theme, celle de
+   l'appareil. */
+:root[data-theme='light'] {
+	color-scheme: light;
 }
-a:hover {
-	color: #535bf2;
+
+:root[data-theme='dark'] {
+	color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+/* L'en-tête (AppLayout) est collé en haut : un élément atteint au clavier ne
+   doit pas finir dessous (hauteur de l'en-tête : cible tactile + padding). */
+html {
+	scroll-padding-block-start: calc(
+		var(--tap-size) + 2 * var(--space-2) + env(safe-area-inset-top)
+	);
 }
 
 body {
 	margin: 0;
-	display: flex;
-	place-items: center;
-	min-width: 320px;
-	min-height: 100vh;
+	font-family: var(--font-ui);
+	font-size: var(--font-size-base);
+	line-height: 1.5;
+	color: var(--color-text);
+	background: var(--color-bg);
+	-webkit-font-smoothing: antialiased;
 }
 
-h1 {
-	font-size: 3.2em;
-	line-height: 1.1;
+img,
+svg {
+	display: block;
+	max-inline-size: 100%;
 }
 
-button {
-	border-radius: 8px;
-	border: 1px solid transparent;
-	padding: 0.6em 1.2em;
-	font-size: 1em;
-	font-weight: 500;
-	font-family: inherit;
-	background-color: #1a1a1a;
+a {
+	color: var(--color-primary);
+}
+
+:focus-visible {
+	outline: 3px solid var(--color-accent);
+	outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		transition-duration: 0.01ms !important;
+	}
+}
+
+/* ---------------------------------------------------------------------
+   Primitives partagées (boutons, champs) : utilisées par plusieurs
+   composants, elles restent globales plutôt que dupliquées.
+   --------------------------------------------------------------------- */
+
+.button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--space-2);
+	min-block-size: var(--tap-size);
+	padding-inline: var(--space-4);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+	font: inherit;
+	font-weight: 600;
+	color: var(--color-text);
+	background: var(--color-surface);
 	cursor: pointer;
-	transition: border-color 0.25s;
-}
-button:hover {
-	border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-	outline: 4px auto -webkit-focus-ring-color;
 }
 
-@media (prefers-color-scheme: light) {
-	:root {
-		color: #213547;
-		background-color: #ffffff;
+.button:disabled {
+	opacity: 0.6;
+	cursor: not-allowed;
+}
+
+.button--primary {
+	border-color: var(--color-primary);
+	color: var(--color-primary-contrast);
+	background: var(--color-primary);
+}
+
+.button--danger {
+	border-color: var(--color-danger);
+	color: var(--color-surface);
+	background: var(--color-danger);
+}
+
+.button--ghost {
+	border-color: transparent;
+	background: transparent;
+}
+
+.field {
+	display: grid;
+	gap: var(--space-1);
+}
+
+.field__label {
+	font-weight: 600;
+}
+
+.field__input {
+	min-block-size: var(--tap-size);
+	padding-inline: var(--space-3);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+	font: inherit;
+	color: inherit;
+	background: var(--color-bg);
+}
+
+/* Signe d'activité, toujours en aria-hidden : le texte voisin dit ce qui
+   se passe. Taille réglable par --spinner-size (1em par défaut : suit le
+   texte d'un bouton). */
+.spinner {
+	display: inline-block;
+	flex: none;
+	inline-size: var(--spinner-size, 1em);
+	block-size: var(--spinner-size, 1em);
+	border: var(--spinner-width, 0.15em) solid var(--color-border);
+	border-block-start-color: var(--color-primary);
+	border-radius: 50%;
+	animation: spinner-spin 0.9s linear infinite;
+}
+
+/* Dans un bouton (fond primaire compris), il prend la couleur du texte. */
+.button .spinner {
+	border-color: color-mix(in srgb, currentColor 30%, transparent);
+	border-block-start-color: currentColor;
+}
+
+@keyframes spinner-spin {
+	to {
+		rotate: 1turn;
 	}
-	a:hover {
-		color: #747bff;
+}
+
+@keyframes spinner-pulse {
+	50% {
+		opacity: 0.4;
 	}
-	button {
-		background-color: #f9f9f9;
+}
+
+/* La règle globale coupe les animations : on garde un signe d'activité,
+   une pulsation lente plutôt qu'une rotation. */
+@media (prefers-reduced-motion: reduce) {
+	.spinner {
+		animation: spinner-pulse 2s ease-in-out infinite;
+		animation-duration: 2s !important;
 	}
+}
+
+/* Texte lu par les lecteurs d'écran seulement (complète une icône ou un
+   nombre affichés seuls). */
+.visually-hidden {
+	position: absolute;
+	inline-size: 1px;
+	block-size: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
 }

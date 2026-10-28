@@ -1,0 +1,18 @@
+.library-page {
+	display: grid;
+	gap: var(--space-3);
+}
+
+.library-page__title {
+	margin: 0;
+	font-size: var(--font-size-xl);
+}
+
+.library-page__empty {
+	margin: 0;
+	padding: var(--space-6) var(--space-4);
+	border: 2px dashed var(--color-border);
+	border-radius: var(--radius-lg);
+	text-align: center;
+	color: var(--color-text-muted);
+}

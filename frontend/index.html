@@ -1,13 +1,35 @@
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>React + Express App</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<html lang="fr">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<meta
+			name="description"
+			content="Gestionnaire de PDF personnel : lire, annoter, éditer"
+		/>
+		<!-- Barres système (Android) : couleur de l'en-tête, --color-surface de
+		     index.css en clair et en sombre. L'apparence choisie
+		     (app-theme.js) les recolore. -->
+		<meta
+			name="theme-color"
+			media="(prefers-color-scheme: light)"
+			content="#ffffff"
+		/>
+		<meta
+			name="theme-color"
+			media="(prefers-color-scheme: dark)"
+			content="#1b1f26"
+		/>
+		<!-- Apparence choisie sur l'appareil (data-theme, theme-color), avant
+		     le rendu : après les balises theme-color, qu'il modifie. -->
+		<script src="/app-theme.js"></script>
+		<link rel="icon" href="/favicon.ico" sizes="48x48" />
+		<link rel="icon" href="/logo.svg" sizes="any" type="image/svg+xml" />
+		<link rel="apple-touch-icon" href="/apple-touch-icon-180x180.png" />
+		<title>editpdf</title>
+	</head>
+	<body>
+		<div id="root"></div>
+		<script type="module" src="/src/main.jsx"></script>
+	</body>
 </html>

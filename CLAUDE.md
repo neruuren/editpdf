@@ -26,21 +26,24 @@ Le périmètre complet, découpé en tranches ordonnées, est dans **[docs/ROADM
 | ---------------------------------------------- | -------------------------------------------------- |
 | Contexte (CLAUDE.md, CONTEXT.md, ROADMAP, ADR) | ✅ fait                                            |
 | Licence AGPL-3.0-or-later, Node 24.22.1        | ✅ fait                                            |
-| Dépendances cibles déclarées (back + front)    | ✅ installées, pas encore utilisées                |
+| Dépendances cibles déclarées (back + front)    | ✅ installées (multer encore inutilisé)            |
 | Dockerfile (+ outils PDF), compose, nginx      | ✅ fichiers prêts, image non déployée              |
 | CI & Deploy (GitHub Actions)                   | ✅ prêt ; déploiement désactivé (`DEPLOY_ENABLED`) |
 | Outillage Claude (agents, skills, permissions) | ✅ fait                                            |
-| `/api/health`                                  | ✅ fait (route du template, sans base de données)  |
-| T0 socle de code (couches, db, auth, PWA)      | ⏳ à faire                                         |
+| T0 socle de code (couches, db, auth, PWA)      | ✅ fait (testé en vrai serveur et en image Docker) |
 | T1 → T9                                        | ⏳ voir [ROADMAP](docs/ROADMAP.md)                 |
 
-**Socle en place** : le code est encore celui du template (`backend/server.js` monolithique : `/api/health`, `/api/message` de démonstration, 404 JSON sur `/api`, fallback SPA ; `frontend/src/App.jsx` de démonstration). Tout le reste de ce fichier décrit la cible.
+**Socle en place** (T0) :
+
+- backend : couches reprises d'ebookReader, `config/env.js` (refuse de démarrer sans `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `JWT_SECRET`), SQLite + migrations (`001_init.sql` : table `app_meta` seulement, le schéma métier arrive en T1), `/api/health` (vérifie la base), `/api/auth/{login,logout,me}` (cookie `editpdf_session`), `protect` sur tout `/api/v1` (aucune route métier encore : tout `/api/v1/*` répond 401 sans session, 404 avec), CSP adaptée au WASM, arrêt propre sur SIGTERM, scripts `hashPassword.js` / `checkAuth.js` ; `services/pdfService.js` (chargement de MuPDF, `hasPdfSignature`, `inspectPdf` : pages, titre, auteur et sujet ; un PDF protégé s'ouvre sans ses métadonnées chiffrées ; fichier qui n'est pas un PDF lisible → 422) et `testUtils/buildPdf.js` ;
+- frontend : `/login`, `/` (bibliothèque, état vide en attendant T1), 404 ; en-tête collé en haut (logo + « editpdf » vers l'accueil, apparence, déconnexion ; sous 40rem, la déconnexion est dans un menu burger), bandeau « Hors ligne », apparence « Comme l'appareil » (défaut) / Clair / Sombre propre à l'appareil, PWA installable (manifest, icônes générées depuis `public/logo.svg`, service worker qui ne précache que le shell), spinner « Mise à jour en cours… » puis rechargement automatique après un déploiement.
 
 ## Stack
 
 - **Node 24.22.1 (LTS)** : `.nvmrc`, `engines` (`24.x`) et images Docker (`node:24.22.1-*`).
 - **Moteur PDF : MuPDF.js** (paquet npm `mupdf`, Artifex, WebAssembly, AGPL-3.0-or-later), utilisé **des deux côtés** : navigateur et Node. Voir [ADR 0001](docs/adr/0001-moteur-mupdf-et-licence-agpl.md) et [ADR 0002](docs/adr/0002-traitement-hybride-navigateur-serveur.md).
-  - ⚠️ `mupdf` est un module ESM avec top-level await. **Le backend (CommonJS) ne peut pas le `require()`** (`ERR_REQUIRE_ASYNC_MODULE`). Il faut le charger par `await import('mupdf')`, une seule fois, dans un service dédié (cible : `services/pdfService.js`).
+  - ⚠️ `mupdf` est un module ESM avec top-level await. **Le backend (CommonJS) ne peut pas le `require()`** (`ERR_REQUIRE_ASYNC_MODULE`). Il est chargé par `await import('mupdf')`, une seule fois, dans `services/pdfService.js` (`loadMupdf()`).
+  - ⚠️ Sous **Jest 29**, cet `import()` exige `--experimental-vm-modules` : le script `test` du backend lance donc `node --experimental-vm-modules --disable-warning=ExperimentalWarning node_modules/jest/bin/jest.js`. Ne pas le remplacer par un simple `jest`.
   - Le binaire WASM pèse environ 10 Mo. Côté front, il est chargé à la demande dans un Web Worker, jamais dans le bundle principal.
 - **Outils système** (dans l'image Docker, appelés par `child_process.execFile`, jamais via un shell) : `qpdf`, `ghostscript`, `ocrmypdf` + `tesseract-ocr-fra`/`-eng` + `pngquant`. Pas de LibreOffice pour l'instant (T9).
 - **Backend** (CommonJS) : Express 4, helmet, cors, dotenv, `better-sqlite3` 13 (FTS5 pour la recherche plein texte), `bcryptjs` 3, `jsonwebtoken` 9, `cookie-parser`, `express-rate-limit` 8, `multer` 2 (≥ 2.4 : les versions antérieures sont vulnérables). Tests avec Jest + supertest.
@@ -62,7 +65,7 @@ Monorepo **sans workspaces** : le `package.json` racine orchestre deux packages 
 - **Serveur** : tout ce qui doit être fiable, long ou hors de portée du navigateur. Validation à l'upload, miniatures, extraction du texte pour l'index FTS5, opérations par lots (fusion de plusieurs documents de la bibliothèque), **traitements** longs en tâche de fond (OCR, compression, chiffrement : qpdf, Ghostscript, OCRmyPDF).
 - Un **traitement** serveur est un job : il est créé par l'API, exécuté hors de la requête HTTP (file en mémoire, un seul à la fois, persistée dans la table `jobs`), et son état est interrogé par le frontend. Son résultat est toujours une nouvelle révision, jamais un écrasement.
 
-### Backend, organisation par couches reprise d'ebookReader (cible)
+### Backend, organisation par couches reprise d'ebookReader
 
 ```
 backend/
@@ -71,20 +74,22 @@ backend/
 ├── config/
 │   ├── env.js           # SEUL endroit qui lit process.env : valide (throw si AUTH_USERNAME, AUTH_PASSWORD_HASH ou JWT_SECRET manque), exporte un objet figé
 │   └── db.js            # connectDB() / getDb() / closeDB() : better-sqlite3, WAL, foreign_keys, migrations appliquées au démarrage
-├── db/migrations/       # 001_init.sql… appliquées dans l'ordre (tri par nom), chacune en transaction, suivies dans `schema_migrations`
-├── routes/              # authRoutes, healthRoutes, documentRoutes, revisionRoutes (mergeParams), collectionRoutes, tagRoutes, jobRoutes…
-├── controllers/         # exports.verbNoun = asyncHandler(async (req, res, next) => …)
-├── services/            # pdfService (seul à importer mupdf côté Node : validation, métadonnées, texte, miniatures),
-│                        # toolService (seul à appeler qpdf / gs / ocrmypdf : execFile, arguments en tableau, délais et tailles bornés),
-│                        # documentService (import, dédoublonnage par hash, révisions), storageService (chemins sous DATA_DIR),
-│                        # jobService (file des traitements), searchService (FTS5), authService…
-├── models/              # Document, Revision, Collection, Tag, Job… : requêtes préparées, une entité par fichier, PascalCase singulier
-├── middleware/          # auth.js (protect), async.js (asyncHandler), rateLimiter.js (loginLimiter), upload.js (multer → ErrorResponse 413/415/400)
-├── utils/               # errorResponse.js (ErrorResponse(message, statusCode)), validators.js…
+├── db/migrations/       # 001_init.sql (app_meta)… appliquées dans l'ordre (tri par nom), chacune en transaction, suivies dans `schema_migrations`
+├── routes/              # authRoutes, healthRoutes ; (cible) documentRoutes, revisionRoutes (mergeParams), collectionRoutes, tagRoutes, jobRoutes…
+├── controllers/         # authController, healthController : exports.verbNoun = asyncHandler(async (req, res, next) => …)
+├── services/            # authService (bcrypt, JWT, options du cookie),
+│                        # pdfService (seul à importer mupdf côté Node : loadMupdf, hasPdfSignature, inspectPdf ; (cible) texte, miniatures),
+│                        # (cible) toolService (seul à appeler qpdf / gs / ocrmypdf : execFile, arguments en tableau, délais et tailles bornés),
+│                        # (cible) documentService (import, dédoublonnage par hash, révisions), storageService (chemins sous DATA_DIR),
+│                        # (cible) jobService (file des traitements), searchService (FTS5)
+├── models/              # (cible) Document, Revision, Collection, Tag, Job… : requêtes préparées, une entité par fichier, PascalCase singulier
+├── middleware/          # auth.js (protect), async.js (asyncHandler), rateLimiter.js (loginLimiter) ; (cible) upload.js (multer → ErrorResponse 413/415/400)
+├── utils/               # errorResponse.js (ErrorResponse(message, statusCode)) ; (cible) validators.js…
 ├── scripts/             # hashPassword.js, checkAuth.js, prompt.js (saisie masquée : jamais de mot de passe en argument)
-├── __tests__/           # tests Jest à plat
-├── testUtils/           # buildPdf.js : PDF de test fabriqués en mémoire par MuPDF (hors de __tests__/)
-├── jest.setup.js        # variables d'env des tests (base :memory:, DATA_DIR temporaire, compte de test)
+├── __tests__/           # tests Jest à plat : server (health, trust proxy, CSP, 401, 404, JSON invalide, migrations), auth, pdfService
+├── testUtils/           # buildPdf.js : PDF de test fabriqués en mémoire par MuPDF (pages, métadonnées, mot de passe), hors de __tests__/
+├── jest.setup.js        # variables d'env des tests (base :memory:, DATA_DIR temporaire, compte « owner » / « test-password »)
+├── nodemon.json         # dev : redémarre aussi quand .env ou une migration .sql change
 └── data/                # (ignoré par git, volume Docker en prod) editpdf.sqlite, documents/<id>/original.pdf, documents/<id>/r<n>.pdf, thumbnails/, tmp/
 ```
 
@@ -100,32 +105,45 @@ backend/
   - outils système : `execFile` avec arguments en tableau, chemins générés par le serveur (UUID), délai maximal, jamais de nom de fichier fourni par le client ;
   - `express.json` limité à 100 ko ; requêtes SQL toujours préparées ;
   - `app.set('trust proxy', ['loopback', 'uniquelocal'])` derrière nginx (dans Docker, les requêtes arrivent par la passerelle du bridge 172.x.0.1) ;
-  - CSP helmet : `script-src 'self' 'wasm-unsafe-eval'` (indispensable à MuPDF WASM), `worker-src 'self' blob:`, `img-src 'self' blob: data:` ; rien d'autre d'élargi ;
+  - CSP helmet : `script-src 'self' 'wasm-unsafe-eval'` (indispensable à MuPDF WASM), `worker-src 'self'` (le worker est un fichier servi par l'app ; ajouter `blob:` seulement si T2 l'exige), `img-src 'self' blob: data:`, `style-src 'self' 'unsafe-inline'` sans `https:` ; rien d'autre d'élargi (testé dans `server.test.js`) ;
   - CORS activé seulement si `CORS_ORIGIN` est non vide.
 - **Cache HTTP** : `frontend/dist/assets/` (fichiers hashés, dont le WASM) en `immutable` un an ; `index.html`, `sw.js` et manifest toujours revalidés.
 
-### Frontend (cible)
+### Frontend
 
 ```
-frontend/src/
-├── main.jsx, App.jsx    # QueryClientProvider, routes (react-router-dom 7)
-├── pages/               # LoginPage, LibraryPage, ViewerPage (/documents/:id), NotFoundPage…
-├── components/          # un composant par fichier + son .css ; sous-dossiers de domaine (viewer/, library/) seulement quand une zone grossit
-├── hooks/               # useXxx.js (useDocuments, useSession, usePdfDocument…)
-├── utils/
-│   ├── api.js           # fetch JSON vers /api, erreurs normalisées
-│   └── pdfEngine.js     # SEUL point d'accès à MuPDF.js : pilote le worker, expose ouvrir / rendre une page / chercher / annoter / éditer / enregistrer
-├── workers/pdf.worker.js # charge mupdf (WASM) à la demande, exécute les commandes de pdfEngine
-└── index.css            # tokens globaux (custom properties), reset, thème clair/sombre
+frontend/
+├── index.html           # lang="fr", theme-color clair/sombre (= --color-surface), favicon, app-theme.js avant le rendu
+├── vite.config.js       # react + VitePWA (autoUpdate, injectRegister: false, manifest inline, précache du shell seul, WASM compris jusqu'à 16 Mo, navigateFallback sauf /api), proxy /api → :3003
+├── pwa-assets.config.js # icônes PWA depuis public/logo.svg (fond rouge #c62828 pour les maskable)
+├── public/              # logo.svg (⚠️ pas de « -- » dans ses commentaires XML : sharp refuse le fichier), icônes générées, app-theme.js
+└── src/
+    ├── main.jsx, App.jsx    # QueryClientProvider, BrowserRouter, routes (pages en lazy), AppUpdateOverlay
+    ├── pages/               # LoginPage, LibraryPage (état vide en T0), NotFoundPage ; (cible) ViewerPage (/documents/:id)
+    ├── components/          # AppLayout, AppThemeMenu, AppUpdateOverlay, PrivateRoute, StatusMessage : un composant par fichier + son .css
+    ├── hooks/               # useAuth (useSession, useLogin, useLogout), useAppTheme, useAppUpdate, useOnlineStatus
+    ├── pwa/                 # registerServiceWorker.js (module virtuel, jamais importé par les tests), appUpdate.js (spinner + rechargement)
+    ├── utils/
+    │   ├── api.js           # fetch JSON vers /api, ApiError(message, status) ; authAPI
+    │   ├── appTheme.js      # apparence de l'appareil (localStorage `editpdf-app-theme`), en phase avec public/app-theme.js
+    │   ├── queryClient.js   # createQueryClient (401 → session vidée), clés de requête
+    │   └── pdfEngine.js     # (cible) SEUL point d'accès à MuPDF.js : pilote le worker, expose ouvrir / rendre une page / chercher / annoter / éditer / enregistrer
+    ├── workers/pdf.worker.js # (cible) charge mupdf (WASM) à la demande, exécute les commandes de pdfEngine
+    ├── testUtils.jsx        # renderWithProviders, mockFetch
+    └── index.css            # tokens globaux (custom properties, light-dark()), reset, primitives (.button, .field, .spinner, .visually-hidden)
 ```
+
+- **Couleurs** : primaire bleu ardoise (`--color-primary`), rouge du logo réservé à l'identité (`--color-brand`), rouge vif aux actions destructrices (`--color-danger`).
+- **Apparence** : « Comme l'appareil » par défaut, Clair ou Sombre, propre à l'appareil (comme ebookReader, sans le noir OLED).
+- **Hors ligne** : TanStack Query garde le `networkMode` « online » par défaut (rien à lire hors ligne, ADR 0008) ; un bandeau prévient et les requêtes attendent le réseau.
 
 - Pas de fichiers barrel ni de dossiers par feature (comme ebookReader).
 - Composants : fonctions nommées, export par défaut, un composant par fichier, handlers nommés (`handleSubmit`), pas de `propTypes`.
 - Textes en français avec apostrophe typographique `’` dans le JSX.
 
-### Modèle de données (SQLite, cible)
+### Modèle de données (SQLite)
 
-Dates en TEXT ISO 8601 UTC. Ids en TEXT (UUID générés côté serveur). Suppressions en cascade sur les liaisons. Le schéma exact sera fixé en T0/T1 et cette table mise à jour.
+Dates en TEXT ISO 8601 UTC. Ids en TEXT (UUID générés côté serveur). Suppressions en cascade sur les liaisons. Aujourd'hui, seules `schema_migrations` et `app_meta` (clé / valeur, réglages internes de l'instance, migration 001) existent. Les autres tables sont la **cible** de T1 et suivantes ; le schéma exact sera fixé avec leur code.
 
 | Table                   | Rôle                                                                                                                                                                       |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -141,15 +159,19 @@ Dates en TEXT ISO 8601 UTC. Ids en TEXT (UUID générés côté serveur). Suppre
 
 Les **annotations** ne sont pas en base : elles vivent **dans le PDF** (objets d'annotation standard), pour rester lisibles dans n'importe quel lecteur.
 
-## Authentification (cible)
+## Authentification
 
-Copie du fonctionnement d'ebookReader, voir [ADR 0004](docs/adr/0004-auth-mono-utilisateur.md) : un seul compte défini par `AUTH_USERNAME` + `AUTH_PASSWORD_HASH` (bcrypt), JWT HS256 dans le cookie **`editpdf_session`** (HttpOnly, SameSite=Strict, `Path=/api`, Secure en prod), login rate-limité, `protect` sur tout `/api/v1`. Reprendre directement `authService`, `authController`, `middleware/auth.js`, `rateLimiter.js` et les scripts `hashPassword.js` / `checkAuth.js` / `prompt.js` d'ebookReader.
+Copie du fonctionnement d'ebookReader, voir [ADR 0004](docs/adr/0004-auth-mono-utilisateur.md) : un seul compte défini par `AUTH_USERNAME` + `AUTH_PASSWORD_HASH` (bcrypt), JWT HS256 dans le cookie **`editpdf_session`** (HttpOnly, SameSite=Strict, `Path=/api`, Secure en prod), login rate-limité, `protect` sur tout `/api/v1`. Le code est celui d'ebookReader (`authService`, `authController`, `middleware/auth.js`, `rateLimiter.js`, scripts `hashPassword.js` / `checkAuth.js` / `prompt.js`), seul le nom du cookie change. Côté front, la session est la requête TanStack Query `['session']` (`GET /api/auth/me`, null si 401) ; `PrivateRoute` redirige vers `/login` sans elle et toute réponse 401 la vide.
 
 ## Variables d'environnement
 
 Documentées en détail dans [backend/.env.example](backend/.env.example). Grégory crée lui-même les fichiers `.env` (dev : `backend/.env` ; prod : `/var/www/editpdf/.env` sur le VPS, à côté de `docker-compose.yml`, jamais commité ni synchronisé par rsync). **Toute nouvelle variable doit être ajoutée à `.env.example`, à `docker-compose.yml` et à ce fichier.**
 
-Variables : `NODE_ENV`, `PORT` (3003), `CORS_ORIGIN`, `DATA_DIR`, `DB_FILE` (`editpdf.sqlite`), `UPLOAD_MAX_SIZE_MB` (100), `REVISIONS_KEEP` (20), `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `JWT_SECRET`, `JWT_EXPIRE`, `LOGIN_RATE_LIMIT_MAX`, `LOGIN_RATE_LIMIT_WINDOW_MIN`. Aujourd'hui, seules `PORT` et `CORS_ORIGIN` sont lues (code du template).
+Variables : `NODE_ENV`, `PORT` (3003), `CORS_ORIGIN`, `DATA_DIR`, `DB_FILE` (`editpdf.sqlite`), `UPLOAD_MAX_SIZE_MB` (100), `REVISIONS_KEEP` (20), `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `JWT_SECRET`, `JWT_EXPIRE`, `LOGIN_RATE_LIMIT_MAX`, `LOGIN_RATE_LIMIT_WINDOW_MIN`. Toutes sont lues par `config/env.js` ; `UPLOAD_MAX_SIZE_MB` et `REVISIONS_KEEP` ne servent pas encore (T1).
+
+- Sans les trois obligatoires (`AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `JWT_SECRET`), le backend refuse de démarrer : pour le dev, créer `backend/.env` depuis `.env.example` et y mettre le hash donné par `node backend/scripts/hashPassword.js`.
+- `backend/.env` est chargé avec un chemin explicite (`server.js`), quel que soit le dossier courant.
+- dotenv ne surcharge jamais une variable déjà définie : les tests (`jest.setup.js`) et Docker (`environment:`) ont donc priorité sur le `.env` local.
 
 ## Déploiement (calqué sur ebookReader)
 
@@ -204,11 +226,18 @@ Voir [ADR 0005](docs/adr/0005-deploiement-docker-vps.md). Fichiers : [Dockerfile
 | `npm run test` / `test:backend` / `test:frontend` | Jest / Vitest                                                                                                                         |
 | `npm run build`                                   | deps backend de prod + build Vite (⚠️ supprime `frontend/node_modules` à la fin : relancer `npm install` pour continuer à développer) |
 | `npm run start`                                   | lance le backend (qui sert `frontend/dist`)                                                                                           |
+| `node backend/scripts/hashPassword.js`            | génère `AUTH_PASSWORD_HASH` (mot de passe demandé ; versions dev + compose)                                                           |
+| `node backend/scripts/checkAuth.js`               | diagnostique la config d'auth du `.env` (identifiant + mot de passe demandés)                                                         |
+| `npm run generate-pwa-assets --prefix frontend`   | régénère favicon et icônes PWA depuis `frontend/public/logo.svg`                                                                      |
 | `docker build -t editpdf:test .`                  | construit l'image en local (podman fonctionne aussi)                                                                                  |
 | `docker compose up -d --build --wait`             | build et démarrage du conteneur (prod, sur le VPS)                                                                                    |
 
 ## Points ouverts
 
+- **Revue de sécurité du socle T0** (agent SecurityReviewer, 2026-10-28) : rien de critique ni d'élevé, CORS fermé par défaut en prod corrigé. Restent à décider :
+  - la déconnexion n'invalide pas le JWT (valable `JWT_EXPIRE`, 30 jours) : piste, une date `sessions_valid_after` dans `app_meta`, comparée à `iat` par `protect` et mise à jour au logout, et/ou une durée plus courte ;
+  - le déploiement SSH utilise `StrictHostKeyChecking=no` (hérité d'ebookReader) : piste, un secret `VPS_KNOWN_HOSTS` et `webfactory/ssh-agent` épinglé sur un SHA ;
+  - **à faire en T1** : SameSite=Strict ne protège pas des autres applis de `*.gregory-day.fr` (même site). Avant la première route qui modifie des données sans corps JSON (upload multipart, `DELETE`), vérifier l'en-tête `Origin` sur les méthodes non sûres.
 - `npm audit` : 0 vulnérabilité en prod. Reste une alerte `deepmerge` **dev uniquement** (via jest 29 et workbox-build), sans correctif disponible pour l'instant.
 - Édition du texte existant : approche à valider en début de T4 ([ADR 0007](docs/adr/0007-edition-du-texte-existant.md), statut proposé).
 - Stockage des révisions : rétention et éventuelle compression des anciennes révisions à confirmer ([ADR 0006](docs/adr/0006-stockage-documents-et-revisions.md), statut proposé).

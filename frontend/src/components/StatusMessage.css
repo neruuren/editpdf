@@ -1,0 +1,14 @@
+.status-message {
+	display: grid;
+	place-content: center;
+	justify-items: center;
+	gap: var(--space-3);
+	min-block-size: 60dvh;
+	padding: var(--space-4);
+	text-align: center;
+}
+
+.status-message__text {
+	margin: 0;
+	color: var(--color-text-muted);
+}

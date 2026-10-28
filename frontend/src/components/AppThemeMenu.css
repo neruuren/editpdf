@@ -1,0 +1,45 @@
+/* Ancrage CSS (anchor positioning) ; un navigateur qui ne le gère pas
+   centre le popover, ce qui reste utilisable. */
+.app-theme-menu__button {
+	anchor-name: --app-theme-menu;
+	font-size: var(--font-size-lg);
+}
+
+.app-theme-menu {
+	position-anchor: --app-theme-menu;
+	position-area: block-end span-inline-start;
+	position-try-fallbacks: flip-block;
+	min-inline-size: 13rem;
+	margin: var(--space-1) 0;
+	padding: var(--space-2) var(--space-3);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+	color: var(--color-text);
+	background: var(--color-surface);
+	box-shadow: var(--shadow);
+}
+
+.app-theme-menu__group {
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
+.app-theme-menu__legend {
+	padding: 0;
+	font-weight: 600;
+}
+
+.app-theme-menu__choice {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-block-size: var(--tap-size);
+	cursor: pointer;
+}
+
+.app-theme-menu__choice input {
+	inline-size: 1.25rem;
+	block-size: 1.25rem;
+	accent-color: var(--color-primary);
+}

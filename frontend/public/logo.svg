@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+	<!-- Fond rouge (couleur d’identité, variable color-brand d’index.css) : le contenu reste dans
+	     les 80 % centraux, zone sûre des icônes maskable. -->
+	<rect width="512" height="512" rx="96" fill="#c62828"/>
+	<!-- Page au coin plié -->
+	<path d="M152 104h150l74 74v230a24 24 0 0 1-24 24H152a24 24 0 0 1-24-24V128a24 24 0 0 1 24-24z" fill="#ffffff"/>
+	<path d="M302 104v50a24 24 0 0 0 24 24h50z" fill="#f2c4c4"/>
+	<!-- Lignes de texte -->
+	<rect x="168" y="214" width="150" height="16" rx="8" fill="#d9a3a3"/>
+	<rect x="168" y="254" width="120" height="16" rx="8" fill="#d9a3a3"/>
+	<rect x="168" y="294" width="84" height="16" rx="8" fill="#d9a3a3"/>
+	<!-- Crayon en diagonale, pointe vers le bas à gauche -->
+	<g transform="rotate(45 316 316)">
+		<rect x="292" y="176" width="48" height="190" rx="6" fill="#2f4a7a"/>
+		<rect x="292" y="176" width="48" height="30" rx="6" fill="#e08a1e"/>
+		<path d="M292 366h48l-24 52z" fill="#f3d9b1"/>
+		<path d="M308 401h16l-8 17z" fill="#1c2230"/>
+	</g>
+</svg>

@@ -1,0 +1,13 @@
+.not-found-page {
+	display: grid;
+	place-content: center;
+	justify-items: center;
+	gap: var(--space-3);
+	min-block-size: 100dvh;
+	padding: var(--space-4);
+}
+
+.not-found-page__title {
+	margin: 0;
+	font-size: var(--font-size-xl);
+}
