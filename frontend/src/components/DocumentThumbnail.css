@@ -1,0 +1,21 @@
+/* Proportions d'une page A4, la plus courante ; une autre page est
+   recadrée par le haut (object-position), comme dans un explorateur. */
+.document-thumbnail {
+	inline-size: 100%;
+	aspect-ratio: 210 / 297;
+	object-fit: cover;
+	object-position: top;
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-sm);
+	background: #ffffff;
+}
+
+.document-thumbnail--placeholder {
+	display: grid;
+	place-items: center;
+	font-size: var(--font-size-xl);
+	font-weight: 700;
+	letter-spacing: 0.05em;
+	color: var(--color-text-muted);
+	background: var(--color-bg);
+}

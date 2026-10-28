@@ -1,0 +1,63 @@
+.document-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(min(10rem, 100%), 1fr));
+	gap: var(--space-4);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.document-grid__card {
+	position: relative;
+	display: grid;
+	align-content: start;
+	gap: var(--space-1);
+	padding: var(--space-2);
+	border-radius: var(--radius-md);
+}
+
+.document-grid__card:hover,
+.document-grid__card:focus-within {
+	background: var(--color-surface);
+	box-shadow: var(--shadow);
+}
+
+.document-grid__card .document-thumbnail {
+	margin-block-end: var(--space-1);
+}
+
+.document-grid__title {
+	display: -webkit-box;
+	color: inherit;
+	text-decoration: none;
+	overflow: hidden;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+/* Le lien couvre toute la carte. */
+.document-grid__title::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+}
+
+/* Le contour de focus suit la carte entière, pas le seul titre. */
+.document-grid__title:focus-visible {
+	outline: none;
+}
+
+.document-grid__title:focus-visible::after {
+	outline: 3px solid var(--color-accent);
+	outline-offset: 2px;
+}
+
+.document-grid__meta {
+	margin: 0;
+	font-size: 0.875em;
+	color: var(--color-text-muted);
+}

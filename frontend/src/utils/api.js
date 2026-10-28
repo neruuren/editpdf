@@ -1,10 +1,12 @@
 // 🔹 Client HTTP de l'API. Même origine en prod (Express sert le front) et
 // proxy Vite en dev : le cookie de session HttpOnly part tout seul.
 
+// `data` : ce que le serveur joint à l'erreur (ex. { documentId } pour un doublon).
 export class ApiError extends Error {
-	constructor(message, status) {
+	constructor(message, status, data) {
 		super(message);
 		this.status = status;
+		this.data = data;
 	}
 }
 
@@ -25,6 +27,7 @@ async function request(path, { method = 'GET', body } = {}) {
 		throw new ApiError(
 			payload?.error || `Erreur ${response.status}`,
 			response.status,
+			payload?.data,
 		);
 	}
 	return payload.data;
@@ -43,4 +46,29 @@ export const authAPI = {
 			throw error;
 		}
 	},
+};
+
+export const documentsAPI = {
+	list: () => request('/v1/documents'),
+	get: (id) => request(`/v1/documents/${encodeURIComponent(id)}`),
+	upload: (file) => {
+		const formData = new FormData();
+		formData.append('file', file);
+		return request('/v1/documents', { method: 'POST', body: formData });
+	},
+	update: ({ id, changes }) =>
+		request(`/v1/documents/${encodeURIComponent(id)}`, {
+			method: 'PATCH',
+			body: changes,
+		}),
+	remove: (id) =>
+		request(`/v1/documents/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+	// URL directes (<img>, lien de téléchargement) : le cookie de session part
+	// avec, même origine. `?v=` change avec la révision courante : le cache
+	// du navigateur ne montre jamais une ancienne miniature.
+	thumbnailUrl: (document) =>
+		`/api/v1/documents/${encodeURIComponent(document.id)}/thumbnail?v=${document.currentRevision}`,
+	fileUrl: (id) => `/api/v1/documents/${encodeURIComponent(id)}/file`,
+	revisionFileUrl: (id, number) =>
+		`/api/v1/documents/${encodeURIComponent(id)}/revisions/${number}/file`,
 };

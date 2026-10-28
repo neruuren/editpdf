@@ -18,10 +18,15 @@ exports.login = asyncHandler(async (req, res, next) => {
 	res.status(200).json({ success: true, data: { username } });
 });
 
-// @desc    Se déconnecter (efface le cookie de session)
+// @desc    Se déconnecter (efface le cookie et invalide toutes les sessions)
 // @route   POST /api/auth/logout
 // @access  Public
 exports.logout = (req, res) => {
+	// Seule une session valide peut tout révoquer : sinon n'importe qui
+	// pourrait déconnecter l'utilisateur de tous ses appareils.
+	if (authService.verifyToken(req.cookies?.[authService.COOKIE_NAME])) {
+		authService.revokeSessions();
+	}
 	res.clearCookie(authService.COOKIE_NAME, authService.clearCookieOptions());
 	res.status(200).json({ success: true, data: null });
 };

@@ -1,0 +1,41 @@
+/* Vide : aucune boîte (pas d'espace dans la grille de la page), mais la
+   région reste dans l'arbre d'accessibilité, contrairement à display: none. */
+.upload-report:empty {
+	display: contents;
+}
+
+.upload-report__bubble {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	margin: 0;
+	padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+	background: var(--color-surface);
+	box-shadow: var(--shadow);
+}
+
+.upload-report__messages {
+	flex: 1;
+	min-inline-size: 0;
+}
+
+.upload-report__messages > * {
+	margin-block: var(--space-1);
+}
+
+.upload-report__messages ul {
+	padding-inline-start: var(--space-4);
+	overflow-wrap: anywhere;
+}
+
+.upload-report__error {
+	color: var(--color-danger);
+}
+
+.upload-report__close {
+	align-self: flex-start;
+	inline-size: var(--tap-size);
+	padding: 0;
+}

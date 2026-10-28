@@ -1,11 +1,56 @@
 .library-page {
 	display: grid;
+	gap: var(--space-4);
+}
+
+.library-page__header {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
 	gap: var(--space-3);
 }
 
 .library-page__title {
 	margin: 0;
 	font-size: var(--font-size-xl);
+}
+
+.library-page__count {
+	font-weight: 400;
+	color: var(--color-text-muted);
+}
+
+.library-page__toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: end;
+	gap: var(--space-3);
+}
+
+.library-page__filter {
+	flex: 1 1 14rem;
+}
+
+.library-page__views {
+	display: flex;
+}
+
+.library-page__views .button:first-child {
+	border-start-end-radius: 0;
+	border-end-end-radius: 0;
+}
+
+.library-page__views .button:last-child {
+	margin-inline-start: -1px;
+	border-start-start-radius: 0;
+	border-end-start-radius: 0;
+}
+
+.library-page__views .button[aria-pressed='true'] {
+	border-color: var(--color-primary);
+	color: var(--color-primary-contrast);
+	background: var(--color-primary);
 }
 
 .library-page__empty {
@@ -15,4 +60,21 @@
 	border-radius: var(--radius-lg);
 	text-align: center;
 	color: var(--color-text-muted);
+}
+
+/* Invitation à déposer, par-dessus toute la fenêtre pendant le glissé. */
+.library-page__drop-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 20;
+	display: grid;
+	place-items: center;
+	padding: var(--space-5);
+	border: 4px dashed var(--color-primary);
+	font-size: var(--font-size-lg);
+	font-weight: 600;
+	text-align: center;
+	color: var(--color-primary);
+	background: color-mix(in srgb, var(--color-bg) 88%, transparent);
+	pointer-events: none;
 }

@@ -26,17 +26,23 @@ Le périmètre complet, découpé en tranches ordonnées, est dans **[docs/ROADM
 | ---------------------------------------------- | -------------------------------------------------- |
 | Contexte (CLAUDE.md, CONTEXT.md, ROADMAP, ADR) | ✅ fait                                            |
 | Licence AGPL-3.0-or-later, Node 24.22.1        | ✅ fait                                            |
-| Dépendances cibles déclarées (back + front)    | ✅ installées (multer encore inutilisé)            |
+| Dépendances cibles déclarées (back + front)    | ✅ installées                                      |
 | Dockerfile (+ outils PDF), compose, nginx      | ✅ fichiers prêts, image non déployée              |
 | CI & Deploy (GitHub Actions)                   | ✅ prêt ; déploiement désactivé (`DEPLOY_ENABLED`) |
 | Outillage Claude (agents, skills, permissions) | ✅ fait                                            |
 | T0 socle de code (couches, db, auth, PWA)      | ✅ fait (testé en vrai serveur et en image Docker) |
-| T1 → T9                                        | ⏳ voir [ROADMAP](docs/ROADMAP.md)                 |
+| T1a bibliothèque : import, fiche, grille/liste | ✅ fait (testé en vrai serveur)                    |
+| T1b recherche, collections, révisions → T9     | ⏳ voir [ROADMAP](docs/ROADMAP.md)                 |
 
 **Socle en place** (T0) :
 
 - backend : couches reprises d'ebookReader, `config/env.js` (refuse de démarrer sans `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `JWT_SECRET`), SQLite + migrations (`001_init.sql` : table `app_meta` seulement, le schéma métier arrive en T1), `/api/health` (vérifie la base), `/api/auth/{login,logout,me}` (cookie `editpdf_session`), `protect` sur tout `/api/v1` (aucune route métier encore : tout `/api/v1/*` répond 401 sans session, 404 avec), CSP adaptée au WASM, arrêt propre sur SIGTERM, scripts `hashPassword.js` / `checkAuth.js` ; `services/pdfService.js` (chargement de MuPDF, `hasPdfSignature`, `inspectPdf` : pages, titre, auteur et sujet ; un PDF protégé s'ouvre sans ses métadonnées chiffrées ; fichier qui n'est pas un PDF lisible → 422) et `testUtils/buildPdf.js` ;
-- frontend : `/login`, `/` (bibliothèque, état vide en attendant T1), 404 ; en-tête collé en haut (logo + « editpdf » vers l'accueil, apparence, déconnexion ; sous 40rem, la déconnexion est dans un menu burger), bandeau « Hors ligne », apparence « Comme l'appareil » (défaut) / Clair / Sombre propre à l'appareil, PWA installable (manifest, icônes générées depuis `public/logo.svg`, service worker qui ne précache que le shell), spinner « Mise à jour en cours… » puis rechargement automatique après un déploiement.
+- frontend : `/login`, `/` (bibliothèque), `/documents/:id` (fiche), 404 ; en-tête collé en haut (logo + « editpdf » vers l'accueil, apparence, déconnexion ; sous 40rem, la déconnexion est dans un menu burger), bandeau « Hors ligne », apparence « Comme l'appareil » (défaut) / Clair / Sombre propre à l'appareil, PWA installable (manifest, icônes générées depuis `public/logo.svg`, service worker qui ne précache que le shell), spinner « Mise à jour en cours… » puis rechargement automatique après un déploiement.
+
+**Bibliothèque** (T1a) :
+
+- backend : `POST /api/v1/documents` (multipart, champ `file`, un PDF par envoi ; `middleware/upload.js` → tmp/, puis `documentService.importDocument` : sha256 et refus des doublons en 409 avec `data.documentId`, `inspectPdf` avec miniature, rangement de l'original en révision 0, nettoyage en cas d'échec) ; `GET /api/v1/documents` (tout, tri côté client), `GET|PATCH|DELETE /api/v1/documents/:id` (PATCH : `title` requis, `author`, `subject`, en base seulement) ; `GET …/:id/thumbnail` (JPEG 480 px de large, cache privé un jour, l'URL porte `?v=<révision courante>`), `GET …/:id/file` (révision courante) et `GET …/:id/revisions/:number/file` (0 = original), toujours en pièce jointe avec le nom d'origine ; un PDF protégé par mot de passe est accepté (titre = nom du fichier, ni métadonnées ni miniature) ; `middleware/sameOrigin.js` sur tout `/api` ; révocation de toutes les sessions au logout ;
+- frontend : bibliothèque en grille (par défaut) ou liste, tri (date d'ajout, titre, dernière ouverture, taille) et vue mémorisés sur l'appareil (`editpdf-library-sort`, `editpdf-library-view`), filtre rapide (titre, auteur, sujet, nom de fichier, sans casse ni accents), import par le bouton « Importer des PDF » ou en déposant des fichiers n'importe où sur la page (un par un, compte rendu avec un lien « Voir le document » pour un doublon) ; fiche `/documents/:id` (vignette, informations, formulaire des métadonnées, « Télécharger », « Télécharger l'original » dès qu'une révision existe, suppression confirmée dans un `<dialog>`).
 
 ## Stack
 
@@ -74,23 +80,23 @@ backend/
 ├── config/
 │   ├── env.js           # SEUL endroit qui lit process.env : valide (throw si AUTH_USERNAME, AUTH_PASSWORD_HASH ou JWT_SECRET manque), exporte un objet figé
 │   └── db.js            # connectDB() / getDb() / closeDB() : better-sqlite3, WAL, foreign_keys, migrations appliquées au démarrage
-├── db/migrations/       # 001_init.sql (app_meta)… appliquées dans l'ordre (tri par nom), chacune en transaction, suivies dans `schema_migrations`
-├── routes/              # authRoutes, healthRoutes ; (cible) documentRoutes, revisionRoutes (mergeParams), collectionRoutes, tagRoutes, jobRoutes…
-├── controllers/         # authController, healthController : exports.verbNoun = asyncHandler(async (req, res, next) => …)
-├── services/            # authService (bcrypt, JWT, options du cookie),
-│                        # pdfService (seul à importer mupdf côté Node : loadMupdf, hasPdfSignature, inspectPdf ; (cible) texte, miniatures),
+├── db/migrations/       # 001_init.sql (app_meta), 002_documents.sql (documents, revisions)… appliquées dans l'ordre (tri par nom), chacune en transaction, suivies dans `schema_migrations`
+├── routes/              # authRoutes, healthRoutes, documentRoutes, revisionRoutes (mergeParams) ; (cible) collectionRoutes, tagRoutes, jobRoutes…
+├── controllers/         # authController, healthController, documentController : exports.verbNoun = asyncHandler(async (req, res, next) => …)
+├── services/            # authService (bcrypt, JWT, options du cookie, révocation des sessions),
+│                        # pdfService (seul à importer mupdf côté Node : loadMupdf, hasPdfSignature, inspectPdf avec miniature de la page 1 ; (cible) texte),
+│                        # documentService (import, dédoublonnage par hash, métadonnées, suppression, fichiers à servir), storageService (chemins sous DATA_DIR, tmp/ vidé au démarrage),
 │                        # (cible) toolService (seul à appeler qpdf / gs / ocrmypdf : execFile, arguments en tableau, délais et tailles bornés),
-│                        # (cible) documentService (import, dédoublonnage par hash, révisions), storageService (chemins sous DATA_DIR),
 │                        # (cible) jobService (file des traitements), searchService (FTS5)
-├── models/              # (cible) Document, Revision, Collection, Tag, Job… : requêtes préparées, une entité par fichier, PascalCase singulier
-├── middleware/          # auth.js (protect), async.js (asyncHandler), rateLimiter.js (loginLimiter) ; (cible) upload.js (multer → ErrorResponse 413/415/400)
-├── utils/               # errorResponse.js (ErrorResponse(message, statusCode)) ; (cible) validators.js…
+├── models/              # Document, Revision, AppMeta ; (cible) Collection, Tag, Job… : requêtes préparées, une entité par fichier, PascalCase singulier
+├── middleware/          # auth.js (protect), async.js (asyncHandler), rateLimiter.js (loginLimiter), sameOrigin.js (403 si une requête qui modifie vient d'une autre origine), upload.js (multer → ErrorResponse 413/415/400)
+├── utils/               # errorResponse.js (ErrorResponse(message, statusCode, data?)) ; (cible) validators.js…
 ├── scripts/             # hashPassword.js, checkAuth.js, prompt.js (saisie masquée : jamais de mot de passe en argument)
-├── __tests__/           # tests Jest à plat : server (health, trust proxy, CSP, 401, 404, JSON invalide, migrations), auth, pdfService
-├── testUtils/           # buildPdf.js : PDF de test fabriqués en mémoire par MuPDF (pages, métadonnées, mot de passe), hors de __tests__/
+├── __tests__/           # tests Jest à plat : server (health, trust proxy, CSP, 401, 404, JSON invalide, migrations), auth, sessions (révocation), sameOrigin, env, pdfService, documents
+├── testUtils/           # buildPdf.js : PDF de test fabriqués en mémoire par MuPDF (pages, taille de page, métadonnées, mot de passe), hors de __tests__/
 ├── jest.setup.js        # variables d'env des tests (base :memory:, DATA_DIR temporaire, compte « owner » / « test-password »)
 ├── nodemon.json         # dev : redémarre aussi quand .env ou une migration .sql change
-└── data/                # (ignoré par git, volume Docker en prod) editpdf.sqlite, documents/<id>/original.pdf, documents/<id>/r<n>.pdf, thumbnails/, tmp/
+└── data/                # (ignoré par git, volume Docker en prod) editpdf.sqlite, documents/<id>/{original.pdf, r<n>.pdf, thumbnail.jpg}, tmp/
 ```
 
 - Chaîne : `routes/` → `controllers/` → `services/` (dès qu'il y a de la logique) → `models/`. Un CRUD trivial peut appeler le modèle directement depuis le contrôleur.
@@ -99,11 +105,16 @@ backend/
 - **Nouvelle migration** : ajouter `db/migrations/NNN_description.sql`, sans jamais modifier une migration déjà déployée.
 - **Nouvelle variable d'env** : la lire dans `config/env.js` (jamais `process.env` ailleurs), puis la documenter dans `.env.example`, `docker-compose.yml` et ici.
 - **API** : `/api/v1/<ressource-au-pluriel-kebab>` (`/api/v1/documents`, `/api/v1/documents/:id/revisions`, `/api/v1/collections`, `/api/v1/jobs`). L'auth est sous `/api/auth` (`/login`, `/logout`, `/me`). Les PDF sont servis par `GET /api/v1/documents/:id/file` (révision courante) ou `…/revisions/:n/file`, protégés par l'auth, jamais en statique public.
-- **Format des réponses** : succès `{ success: true, data, count? }`, erreur `{ success: false, error }`. Le gestionnaire d'erreurs final renvoie le message d'une `ErrorResponse` avec son code, transforme un JSON mal formé en 400 et toute autre erreur en 500 générique journalisé. Une contrainte UNIQUE SQLite violée devient une 409.
+- **Format des réponses** : succès `{ success: true, data, count? }`, erreur `{ success: false, error, data? }` (`data` : ce qui permet au client d'agir, ex. `{ documentId }` d'un doublon). Le gestionnaire d'erreurs final renvoie le message d'une `ErrorResponse` avec son code, transforme un JSON mal formé en 400 et toute autre erreur en 500 générique journalisé. Une contrainte UNIQUE SQLite violée devient une 409.
 - **Sécurité** (skill web-security, agent SecurityReviewer) :
   - un PDF est **toujours hostile** : taille bornée, signature `%PDF-` vérifiée, ouverture par MuPDF dans un `try` (PDF illisible → 422), nombre de pages et dimensions de rendu bornés, JavaScript des PDF jamais exécuté ;
   - outils système : `execFile` avec arguments en tableau, chemins générés par le serveur (UUID), délai maximal, jamais de nom de fichier fourni par le client ;
   - `express.json` limité à 100 ko ; requêtes SQL toujours préparées ;
+  - **contrôle d'origine** (`middleware/sameOrigin.js`, sur tout `/api`) : `POST`/`PUT`/`PATCH`/`DELETE` refusés (403) si `Sec-Fetch-Site` n'est ni `same-origin` ni `none`, ou à défaut si `Origin` n'est pas l'hôte ; `CORS_ORIGIN` est acceptée ; sans aucun des deux en-têtes (curl), la requête passe ;
+  - PDF servis **toujours en pièce jointe** (`Content-Disposition` ASCII + `filename*` UTF-8, construit dans `documentController`) et en `Cache-Control: private, no-store` : jamais affichés sous l'origine de l'app, jamais gardés dans le cache du navigateur ;
+  - `:id` d'un document validé comme UUID (`router.param` dans `documentRoutes`) : 404 sinon, avant la base et le disque ;
+  - nom de fichier du client : gardé seulement pour l'affichage et le téléchargement (sans chemin, caractère de contrôle ni marque bidi `\p{Cf}`, 255 caractères), jamais pour un chemin disque ; multer lit les noms en UTF-8 (`defParamCharset`) ;
+  - miniature bornée à 480 × 960 pixels quelle que soit la taille annoncée de la page ;
   - `app.set('trust proxy', ['loopback', 'uniquelocal'])` derrière nginx (dans Docker, les requêtes arrivent par la passerelle du bridge 172.x.0.1) ;
   - CSP helmet : `script-src 'self' 'wasm-unsafe-eval'` (indispensable à MuPDF WASM), `worker-src 'self'` (le worker est un fichier servi par l'app ; ajouter `blob:` seulement si T2 l'exige), `img-src 'self' blob: data:`, `style-src 'self' 'unsafe-inline'` sans `https:` ; rien d'autre d'élargi (testé dans `server.test.js`) ;
   - CORS activé seulement si `CORS_ORIGIN` est non vide.
@@ -119,14 +130,17 @@ frontend/
 ├── public/              # logo.svg (⚠️ pas de « -- » dans ses commentaires XML : sharp refuse le fichier), icônes générées, app-theme.js
 └── src/
     ├── main.jsx, App.jsx    # QueryClientProvider, BrowserRouter, routes (pages en lazy), AppUpdateOverlay
-    ├── pages/               # LoginPage, LibraryPage (état vide en T0), NotFoundPage ; (cible) ViewerPage (/documents/:id)
-    ├── components/          # AppLayout, AppThemeMenu, AppUpdateOverlay, PrivateRoute, StatusMessage : un composant par fichier + son .css
-    ├── hooks/               # useAuth (useSession, useLogin, useLogout), useAppTheme, useAppUpdate, useOnlineStatus
+    ├── pages/               # LoginPage, LibraryPage, DocumentPage (fiche, /documents/:id ; la visionneuse prendra cette URL en T2), NotFoundPage
+    ├── components/          # AppLayout, AppThemeMenu, AppUpdateOverlay, PrivateRoute, StatusMessage, ConfirmDialog (copié d'ebookReader),
+    │                        # DocumentGrid, DocumentTable, DocumentThumbnail, DocumentMetadataForm, UploadReport : un composant par fichier + son .css
+    ├── hooks/               # useAuth (useSession, useLogin, useLogout), useDocuments (liste, fiche, import par lot, modification, suppression),
+    │                        # useFileDrop (copié d'ebookReader), useStoredChoice (choix d'affichage en localStorage), useAppTheme, useAppUpdate, useOnlineStatus
     ├── pwa/                 # registerServiceWorker.js (module virtuel, jamais importé par les tests), appUpdate.js (spinner + rechargement)
     ├── utils/
-    │   ├── api.js           # fetch JSON vers /api, ApiError(message, status) ; authAPI
+    │   ├── api.js           # fetch JSON vers /api, ApiError(message, status, data) ; authAPI, documentsAPI (dont les URL de miniature et de téléchargement)
+    │   ├── library.js       # tri et filtre de la bibliothèque, formats (taille, date, pages)
     │   ├── appTheme.js      # apparence de l'appareil (localStorage `editpdf-app-theme`), en phase avec public/app-theme.js
-    │   ├── queryClient.js   # createQueryClient (401 → session vidée), clés de requête
+    │   ├── queryClient.js   # createQueryClient (401 → session vidée), clés de requête (['session'], ['documents'], ['documents', id])
     │   └── pdfEngine.js     # (cible) SEUL point d'accès à MuPDF.js : pilote le worker, expose ouvrir / rendre une page / chercher / annoter / éditer / enregistrer
     ├── workers/pdf.worker.js # (cible) charge mupdf (WASM) à la demande, exécute les commandes de pdfEngine
     ├── testUtils.jsx        # renderWithProviders, mockFetch
@@ -143,31 +157,31 @@ frontend/
 
 ### Modèle de données (SQLite)
 
-Dates en TEXT ISO 8601 UTC. Ids en TEXT (UUID générés côté serveur). Suppressions en cascade sur les liaisons. Aujourd'hui, seules `schema_migrations` et `app_meta` (clé / valeur, réglages internes de l'instance, migration 001) existent. Les autres tables sont la **cible** de T1 et suivantes ; le schéma exact sera fixé avec leur code.
+Dates en TEXT ISO 8601 UTC. Ids en TEXT (UUID générés côté serveur). Suppressions en cascade sur les liaisons. Existent aujourd'hui : `schema_migrations`, `app_meta` (clé / valeur, réglages internes : `sessions_valid_after`), `documents` et `revisions` (migration 002). Les autres tables sont la **cible** de T1b et suivantes ; leur schéma exact sera fixé avec leur code.
 
-| Table                   | Rôle                                                                                                                                                                       |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `documents`             | id, titre, auteur, sujet, nombre de pages, taille, hash de l'original (dédoublonnage), révision courante, dates, dernière page vue                                         |
-| `revisions`             | document_id, numéro, chemin, taille, hash, origine (`upload`, `edit`, `ocr`, `compress`…), note, created_at ([ADR 0006](docs/adr/0006-stockage-documents-et-revisions.md)) |
-| `collections`           | id, nom (unique sans casse)                                                                                                                                                |
-| `document_collections`  | liaison n-n                                                                                                                                                                |
-| `tags`, `document_tags` | étiquettes libres, liaison n-n                                                                                                                                             |
-| `bookmarks`             | signets personnels (document, page, libellé), distincts du sommaire du PDF                                                                                                 |
-| `jobs`                  | traitements serveur : type, document, paramètres JSON, état, progression, erreur, révision produite                                                                        |
-| `documents_fts`         | table virtuelle FTS5 : titre + texte extrait de la révision courante                                                                                                       |
-| `schema_migrations`     | version du schéma                                                                                                                                                          |
+| Table                   | Rôle                                                                                                                                                                                                                               |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `documents`             | id, title, author, subject, page_count, is_encrypted, original_name, original_hash (UNIQUE, dédoublonnage), current_revision (0 = original), thumbnail_path, added_at, updated_at, last_opened_at ; (cible T2) dernière page vue   |
+| `revisions`             | document_id, number (0 = l'original), path, size, hash, origin (`upload`, puis `edit`, `restore`, `ocr`, `compress`…), note, created_at ; clé (document_id, number) ([ADR 0006](docs/adr/0006-stockage-documents-et-revisions.md)) |
+| `collections`           | id, nom (unique sans casse)                                                                                                                                                                                                        |
+| `document_collections`  | liaison n-n                                                                                                                                                                                                                        |
+| `tags`, `document_tags` | étiquettes libres, liaison n-n                                                                                                                                                                                                     |
+| `bookmarks`             | signets personnels (document, page, libellé), distincts du sommaire du PDF                                                                                                                                                         |
+| `jobs`                  | traitements serveur : type, document, paramètres JSON, état, progression, erreur, révision produite                                                                                                                                |
+| `documents_fts`         | table virtuelle FTS5 : titre + texte extrait de la révision courante                                                                                                                                                               |
+| `schema_migrations`     | version du schéma                                                                                                                                                                                                                  |
 
 Les **annotations** ne sont pas en base : elles vivent **dans le PDF** (objets d'annotation standard), pour rester lisibles dans n'importe quel lecteur.
 
 ## Authentification
 
-Copie du fonctionnement d'ebookReader, voir [ADR 0004](docs/adr/0004-auth-mono-utilisateur.md) : un seul compte défini par `AUTH_USERNAME` + `AUTH_PASSWORD_HASH` (bcrypt), JWT HS256 dans le cookie **`editpdf_session`** (HttpOnly, SameSite=Strict, `Path=/api`, Secure en prod), login rate-limité, `protect` sur tout `/api/v1`. Le code est celui d'ebookReader (`authService`, `authController`, `middleware/auth.js`, `rateLimiter.js`, scripts `hashPassword.js` / `checkAuth.js` / `prompt.js`), seul le nom du cookie change. Côté front, la session est la requête TanStack Query `['session']` (`GET /api/auth/me`, null si 401) ; `PrivateRoute` redirige vers `/login` sans elle et toute réponse 401 la vide.
+Copie du fonctionnement d'ebookReader, voir [ADR 0004](docs/adr/0004-auth-mono-utilisateur.md), avec deux ajouts : la **déconnexion révoque toutes les sessions** (`sessions_valid_after` dans `app_meta`, claim `issuedAtMs`) et le **contrôle d'origine** (`sameOrigin`). Un seul compte défini par `AUTH_USERNAME` + `AUTH_PASSWORD_HASH` (bcrypt), JWT HS256 dans le cookie **`editpdf_session`** (HttpOnly, SameSite=Strict, `Path=/api`, Secure en prod), login rate-limité, `protect` sur tout `/api/v1`. Le code est celui d'ebookReader (`authService`, `authController`, `middleware/auth.js`, `rateLimiter.js`, scripts `hashPassword.js` / `checkAuth.js` / `prompt.js`), seul le nom du cookie change. Côté front, la session est la requête TanStack Query `['session']` (`GET /api/auth/me`, null si 401) ; `PrivateRoute` redirige vers `/login` sans elle et toute réponse 401 la vide.
 
 ## Variables d'environnement
 
 Documentées en détail dans [backend/.env.example](backend/.env.example). Grégory crée lui-même les fichiers `.env` (dev : `backend/.env` ; prod : `/var/www/editpdf/.env` sur le VPS, à côté de `docker-compose.yml`, jamais commité ni synchronisé par rsync). **Toute nouvelle variable doit être ajoutée à `.env.example`, à `docker-compose.yml` et à ce fichier.**
 
-Variables : `NODE_ENV`, `PORT` (3003), `CORS_ORIGIN`, `DATA_DIR`, `DB_FILE` (`editpdf.sqlite`), `UPLOAD_MAX_SIZE_MB` (100), `REVISIONS_KEEP` (20), `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `JWT_SECRET`, `JWT_EXPIRE`, `LOGIN_RATE_LIMIT_MAX`, `LOGIN_RATE_LIMIT_WINDOW_MIN`. Toutes sont lues par `config/env.js` ; `UPLOAD_MAX_SIZE_MB` et `REVISIONS_KEEP` ne servent pas encore (T1).
+Variables : `NODE_ENV`, `PORT` (3003), `CORS_ORIGIN`, `DATA_DIR`, `DB_FILE` (`editpdf.sqlite`), `UPLOAD_MAX_SIZE_MB` (100), `REVISIONS_KEEP` (20), `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `JWT_SECRET`, `JWT_EXPIRE`, `LOGIN_RATE_LIMIT_MAX`, `LOGIN_RATE_LIMIT_WINDOW_MIN`. Toutes sont lues par `config/env.js` ; `REVISIONS_KEEP` ne sert pas encore (T1b/T3).
 
 - Sans les trois obligatoires (`AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `JWT_SECRET`), le backend refuse de démarrer : pour le dev, créer `backend/.env` depuis `.env.example` et y mettre le hash donné par `node backend/scripts/hashPassword.js`.
 - `backend/.env` est chargé avec un chemin explicite (`server.js`), quel que soit le dossier courant.
@@ -234,10 +248,8 @@ Voir [ADR 0005](docs/adr/0005-deploiement-docker-vps.md). Fichiers : [Dockerfile
 
 ## Points ouverts
 
-- **Revue de sécurité du socle T0** (agent SecurityReviewer, 2026-10-28) : rien de critique ni d'élevé, CORS fermé par défaut en prod corrigé. Restent à décider :
-  - la déconnexion n'invalide pas le JWT (valable `JWT_EXPIRE`, 30 jours) : piste, une date `sessions_valid_after` dans `app_meta`, comparée à `iat` par `protect` et mise à jour au logout, et/ou une durée plus courte ;
-  - le déploiement SSH utilise `StrictHostKeyChecking=no` (hérité d'ebookReader) : piste, un secret `VPS_KNOWN_HOSTS` et `webfactory/ssh-agent` épinglé sur un SHA ;
-  - **à faire en T1** : SameSite=Strict ne protège pas des autres applis de `*.gregory-day.fr` (même site). Avant la première route qui modifie des données sans corps JSON (upload multipart, `DELETE`), vérifier l'en-tête `Origin` sur les méthodes non sûres.
+- **Revue de sécurité du socle T0** (agent SecurityReviewer, 2026-10-28) : rien de critique ni d'élevé. Faits en T1a : CORS fermé par défaut en prod, révocation des sessions au logout, contrôle d'origine. Reste à décider : le déploiement SSH utilise `StrictHostKeyChecking=no` (hérité d'ebookReader) ; piste, un secret `VPS_KNOWN_HOSTS` et `webfactory/ssh-agent` épinglé sur un SHA.
+- **MuPDF synchrone** : à l'import, l'ouverture du PDF et le rendu de la miniature bloquent la boucle d'événements de Node (quelques dizaines de ms en général, plus pour une page très chargée). Acceptable pour un seul utilisateur ; à déplacer dans un `worker_thread` (avec délai maximal) si l'import de gros lots ou de PDF hostiles le rend gênant, au plus tard avec la file de traitements (T7). Revue de sécurité T1a : c'est le seul constat moyen (un PDF piégé peut figer l'app et gonfler la mémoire WASM) ; envisager aussi un `mem_limit` dans `docker-compose.yml`, à dimensionner selon le VPS.
 - `npm audit` : 0 vulnérabilité en prod. Reste une alerte `deepmerge` **dev uniquement** (via jest 29 et workbox-build), sans correctif disponible pour l'instant.
 - Édition du texte existant : approche à valider en début de T4 ([ADR 0007](docs/adr/0007-edition-du-texte-existant.md), statut proposé).
 - Stockage des révisions : rétention et éventuelle compression des anciennes révisions à confirmer ([ADR 0006](docs/adr/0006-stockage-documents-et-revisions.md), statut proposé).

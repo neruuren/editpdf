@@ -19,14 +19,22 @@ Légende : `[x]` fait, `[ ]` à faire. Côté : **N** = navigateur (MuPDF.js), *
 
 ## T1 : bibliothèque
 
-- [ ] Upload d'un ou plusieurs PDF (glisser-déposer), validation stricte (S)
-- [ ] Dédoublonnage par hash de l'original (S)
-- [ ] Métadonnées extraites (titre, auteur, sujet, pages) et modifiables (S)
-- [ ] Miniature de la page 1 (S)
-- [ ] Grille et liste, tri (titre, date d'ajout, dernière ouverture, taille), filtres
+Livrée en deux temps : **T1a** (import, fiche, grille et liste) puis **T1b** (recherche plein texte, collections et étiquettes, historique des révisions).
+
+### T1a
+
+- [x] Upload d'un ou plusieurs PDF (bouton ou glisser-déposer sur la page), validation stricte (S)
+- [x] Dédoublonnage par hash de l'original : refus (409) avec un lien vers le document déjà présent (S)
+- [x] Métadonnées extraites (titre, auteur, sujet, pages) et modifiables en base (le PDF n'est pas réécrit) (S)
+- [x] Miniature de la page 1 (S) ; PDF protégé par mot de passe accepté, avec une vignette « cadenas »
+- [x] Grille (par défaut) et liste, tri (date d'ajout, titre, dernière ouverture, taille), filtre rapide (titre, auteur, sujet, nom de fichier), vue et tri mémorisés sur l'appareil
+- [x] Fiche du document (`/documents/:id`) : informations, métadonnées, téléchargement de la révision courante ou de l'original, suppression confirmée
+- [x] Contrôle d'origine des requêtes qui modifient des données, révocation des sessions à la déconnexion
+
+### T1b
+
 - [ ] Recherche plein texte dans le contenu (texte extrait → FTS5) (S)
-- [ ] Collections et étiquettes
-- [ ] Téléchargement de la révision courante ou de l'original, suppression confirmée
+- [ ] Collections et étiquettes, filtres par collection et étiquette
 - [ ] Historique des révisions d'un document : liste, restauration, téléchargement (ADR 0006)
 
 ## T2 : visionneuse

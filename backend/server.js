@@ -12,8 +12,11 @@ const env = require('./config/env');
 const { connectDB, closeDB } = require('./config/db');
 const ErrorResponse = require('./utils/errorResponse');
 const { protect } = require('./middleware/auth');
+const { sameOrigin } = require('./middleware/sameOrigin');
+const { clearTmp } = require('./services/storageService');
 const authRoutes = require('./routes/authRoutes');
 const healthRoutes = require('./routes/healthRoutes');
+const documentRoutes = require('./routes/documentRoutes');
 
 const FRONTEND_DIST = path.join(__dirname, '../frontend/dist');
 
@@ -70,10 +73,13 @@ app.use(
 );
 
 // 🔹 Routes API
+// Avant toute route : une requête qui modifie des données doit venir de l'app.
+app.use('/api', sameOrigin);
 app.use('/api/health', healthRoutes);
 app.use('/api/auth', authRoutes);
 // Toute l'API métier est privée.
 app.use('/api/v1', protect);
+app.use('/api/v1/documents', documentRoutes);
 
 // 🔹 404 JSON pour les routes API inconnues
 app.use('/api', (req, res, next) => {
@@ -89,9 +95,11 @@ app.get('*', (req, res) => {
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
 	if (err instanceof ErrorResponse) {
-		return res
-			.status(err.statusCode)
-			.json({ success: false, error: err.message });
+		return res.status(err.statusCode).json({
+			success: false,
+			error: err.message,
+			...(err.data !== undefined && { data: err.data }),
+		});
 	}
 	// JSON mal formé envoyé par le client
 	if (err.type === 'entity.parse.failed') {
@@ -110,6 +118,10 @@ app.use((err, req, res, next) => {
 
 // 🔹 Lancer le serveur (sauf si le fichier est importé, ex: dans les tests)
 if (require.main === module) {
+	// Un upload interrompu (crash, arrêt du conteneur) laisse un fichier dans tmp/.
+	clearTmp().catch((error) =>
+		console.error('Nettoyage de tmp/ impossible', error),
+	);
 	const server = app.listen(env.port, () => {
 		console.log(`Backend server is running on http://localhost:${env.port}`);
 	});

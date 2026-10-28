@@ -1,6 +1,8 @@
 import { QueryCache, QueryClient, MutationCache } from '@tanstack/react-query';
 
 export const SESSION_QUERY_KEY = ['session'];
+export const DOCUMENTS_QUERY_KEY = ['documents'];
+export const documentQueryKey = (id) => [...DOCUMENTS_QUERY_KEY, id];
 
 // 🔹 Fabrique (et non singleton) : chaque test peut partir d'un cache vierge.
 export function createQueryClient() {

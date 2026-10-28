@@ -1,0 +1,93 @@
+.document-page {
+	display: grid;
+	gap: var(--space-5);
+	container-type: inline-size;
+}
+
+.document-page__back {
+	justify-self: start;
+	padding-block: var(--space-2);
+}
+
+.document-page__layout {
+	display: grid;
+	gap: var(--space-5);
+}
+
+.document-page__thumbnail {
+	justify-self: center;
+	max-inline-size: 16rem;
+}
+
+/* Vignette à gauche dès qu'il y a la place. */
+@container (width >= 40rem) {
+	.document-page__layout {
+		grid-template-columns: 16rem 1fr;
+		align-items: start;
+	}
+}
+
+.document-page__details {
+	display: grid;
+	gap: var(--space-4);
+	min-inline-size: 0;
+}
+
+.document-page__title {
+	margin: 0;
+	font-size: var(--font-size-xl);
+	overflow-wrap: anywhere;
+}
+
+.document-page__notice {
+	margin: 0;
+	padding: var(--space-3);
+	border-inline-start: 4px solid var(--color-accent);
+	border-radius: var(--radius-sm);
+	background: var(--color-surface);
+}
+
+.document-page__info {
+	display: grid;
+	grid-template-columns: max-content 1fr;
+	gap: var(--space-1) var(--space-4);
+	margin: 0;
+}
+
+.document-page__info dt {
+	color: var(--color-text-muted);
+}
+
+.document-page__info dd {
+	margin: 0;
+}
+
+.document-page__file-name {
+	overflow-wrap: anywhere;
+}
+
+.document-page__actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+}
+
+.document-page__actions a.button {
+	text-decoration: none;
+}
+
+.document-page__error {
+	margin: 0;
+	color: var(--color-danger);
+}
+
+.document-page__section {
+	display: grid;
+	gap: var(--space-3);
+	max-inline-size: 40rem;
+}
+
+.document-page__subtitle {
+	margin: 0;
+	font-size: var(--font-size-lg);
+}

@@ -74,3 +74,58 @@ describe('pdfService.inspectPdf', () => {
 		});
 	});
 });
+
+describe('pdfService.inspectPdf : miniature', () => {
+	// Dimensions lues par MuPDF dans le JPEG produit.
+	async function imageSize(jpeg) {
+		const mupdf = await pdfService.loadMupdf();
+		const image = new mupdf.Image(jpeg);
+		try {
+			return { width: image.getWidth(), height: image.getHeight() };
+		} finally {
+			image.destroy();
+		}
+	}
+
+	it('n’est calculée que sur demande', async () => {
+		const info = await pdfService.inspectPdf(await buildPdf());
+		expect(info).not.toHaveProperty('thumbnail');
+	});
+
+	it('rend la page 1 en JPEG de 480 pixels de large', async () => {
+		const { thumbnail } = await pdfService.inspectPdf(await buildPdf(), {
+			withThumbnail: true,
+		});
+		expect(thumbnail.subarray(0, 3)).toEqual(Buffer.from([0xff, 0xd8, 0xff]));
+		const { width, height } = await imageSize(thumbnail);
+		expect(width).toBe(480);
+		// Proportions de l'A4 (595 × 842 points).
+		expect(height).toBeCloseTo((480 * 842) / 595, -1);
+	});
+
+	it.each([
+		['très haute', [0, 0, 10, 100000], { maxWidth: 480, maxHeight: 960 }],
+		['minuscule', [0, 0, 3, 3], { maxWidth: 12, maxHeight: 12 }],
+		['immense', [0, 0, 14400, 14400], { maxWidth: 480, maxHeight: 480 }],
+	])(
+		'reste bornée pour une page %s',
+		async (_label, mediaBox, { maxWidth, maxHeight }) => {
+			const { thumbnail } = await pdfService.inspectPdf(
+				await buildPdf({ mediaBox }),
+				{ withThumbnail: true },
+			);
+			const { width, height } = await imageSize(thumbnail);
+			expect(width).toBeLessThanOrEqual(maxWidth);
+			expect(height).toBeLessThanOrEqual(maxHeight);
+		},
+	);
+
+	it('vaut null pour un PDF protégé (page illisible sans mot de passe)', async () => {
+		const info = await pdfService.inspectPdf(
+			await buildPdf({ password: 'secret' }),
+			{ withThumbnail: true },
+		);
+		expect(info.needsPassword).toBe(true);
+		expect(info.thumbnail).toBeNull();
+	});
+});

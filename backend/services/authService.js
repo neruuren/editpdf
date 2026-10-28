@@ -6,8 +6,13 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const env = require('../config/env');
+const AppMeta = require('../models/AppMeta');
 
 const COOKIE_NAME = 'editpdf_session';
+// Date (ms) de la dernière déconnexion, dans app_meta : tout jeton émis avant
+// ne vaut plus rien. Un JWT ne se révoque pas autrement, et un cookie volé
+// resterait sinon valable JWT_EXPIRE (30 jours).
+const SESSIONS_VALID_AFTER_KEY = 'sessions_valid_after';
 
 // Comparaison à temps constant : évite de révéler par le temps de réponse
 // combien de caractères de l'identifiant sont corrects.
@@ -27,10 +32,27 @@ async function verifyCredentials(username, password) {
 	return _safeEqual(username, env.authUsername) && passwordOk;
 }
 
+// `issuedAtMs` en plus de `iat` (en secondes) : se reconnecter dans la même
+// seconde qu'une déconnexion doit donner un jeton valable.
 function signToken() {
-	return jwt.sign({ sub: env.authUsername }, env.jwtSecret, {
-		expiresIn: env.jwtExpire,
-	});
+	return jwt.sign(
+		{ sub: env.authUsername, issuedAtMs: Date.now() },
+		env.jwtSecret,
+		{
+			expiresIn: env.jwtExpire,
+		},
+	);
+}
+
+function _isRevoked(payload) {
+	const validAfter = Number(AppMeta.get(SESSIONS_VALID_AFTER_KEY) ?? 0);
+	const issuedAt = payload.issuedAtMs ?? payload.iat * 1000;
+	return issuedAt <= validAfter;
+}
+
+// Déconnexion : invalide toutes les sessions ouvertes, sur tous les appareils.
+function revokeSessions() {
+	AppMeta.set(SESSIONS_VALID_AFTER_KEY, Date.now());
 }
 
 // Renvoie le payload, ou null si le token est absent, invalide ou expiré.
@@ -41,7 +63,8 @@ function verifyToken(token) {
 			algorithms: ['HS256'],
 		});
 		// Un token signé pour un autre identifiant (après changement d'AUTH_USERNAME) n'est plus valable.
-		return payload.sub === env.authUsername ? payload : null;
+		if (payload.sub !== env.authUsername || _isRevoked(payload)) return null;
+		return payload;
 	} catch {
 		return null;
 	}
@@ -74,6 +97,7 @@ module.exports = {
 	verifyCredentials,
 	signToken,
 	verifyToken,
+	revokeSessions,
 	cookieOptions,
 	clearCookieOptions,
 };

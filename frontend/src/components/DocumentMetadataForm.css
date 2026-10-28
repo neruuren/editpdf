@@ -1,0 +1,26 @@
+.document-metadata-form {
+	display: grid;
+	gap: var(--space-3);
+}
+
+/* Un textarea ne prend pas la hauteur minimale d'un champ d'une ligne. */
+.document-metadata-form textarea.field__input {
+	padding-block: var(--space-2);
+	resize: vertical;
+}
+
+.document-metadata-form__actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-3);
+}
+
+.document-metadata-form__status {
+	margin: 0;
+	color: var(--color-text-muted);
+}
+
+.document-metadata-form__error {
+	color: var(--color-danger);
+}
