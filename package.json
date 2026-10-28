@@ -1,0 +1,45 @@
+{
+	"name": "web_node.jsbackend_reactfrontend",
+	"version": "1.0.0",
+	"private": true,
+	"description": "bases d'un projet avec node.js et express pour le backend et React pour le frontend",
+	"scripts": {
+		"clean": "rm -rf node_modules backend/node_modules frontend/node_modules && npm cache verify && npm install",
+		"postinstall": "npm install --prefix backend && npm install --prefix frontend",
+		"startDev": "concurrently \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
+		"lint:backend": "npm run lint --prefix backend",
+		"lint:frontend": "npm run lint --prefix frontend",
+		"lint": "concurrently \"npm run lint:backend\" \"npm run lint:frontend\"",
+		"format": "prettier --write \"**/*.{js,jsx,json,css,md}\"",
+		"prepare": "husky",
+		"test:backend": "npm run test --prefix backend",
+		"test:frontend": "npm run test --prefix frontend",
+		"test": "concurrently \"npm run test:backend\" \"npm run test:frontend\"",
+		"build": "npm install --production --prefix backend && npm install --prefix frontend && npm run build --prefix frontend && rm -rf frontend/node_modules",
+		"start": "npm run start --prefix backend"
+	},
+	"author": "Grégory Day : gregory.day@etik.com",
+	"license": "MIT",
+	"devDependencies": {
+		"concurrently": "^9.1.2",
+		"husky": "^9.1.7",
+		"lint-staged": "^17.3.0",
+		"prettier": "^3.5.3"
+	},
+	"lint-staged": {
+		"backend/**/*.js": [
+			"backend/node_modules/.bin/eslint --config backend/eslint.config.mjs --fix",
+			"prettier --write"
+		],
+		"frontend/**/*.{js,jsx}": [
+			"frontend/node_modules/.bin/eslint --config frontend/eslint.config.js --fix",
+			"prettier --write"
+		],
+		"**/*.{json,css,md}": [
+			"prettier --write"
+		]
+	},
+	"engines": {
+		"node": "22.x"
+	}
+}
