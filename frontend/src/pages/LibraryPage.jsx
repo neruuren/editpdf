@@ -1,8 +1,13 @@
-import { useCallback, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useId, useMemo, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import CollectionsDialog from '../components/CollectionsDialog';
 import DocumentGrid from '../components/DocumentGrid';
 import DocumentTable from '../components/DocumentTable';
+import LibraryFilters from '../components/LibraryFilters';
 import StatusMessage from '../components/StatusMessage';
 import UploadReport from '../components/UploadReport';
+import { useCollections } from '../hooks/useCollections';
+import { useContentSearch } from '../hooks/useContentSearch';
 import { useDocuments, useUploadDocuments } from '../hooks/useDocuments';
 import { useFileDrop } from '../hooks/useFileDrop';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
@@ -12,20 +17,30 @@ import {
 	DEFAULT_VIEW,
 	SORT_OPTIONS,
 	VIEW_OPTIONS,
+	collectTags,
+	countByCollection,
 	filterAndSortDocuments,
 	isValidSort,
 	isValidView,
 } from '../utils/library';
 import './LibraryPage.css';
 
+const NO_DOCUMENTS = [];
+
 // 🔹 Page d'accueil : la bibliothèque. Import par le bouton ou en déposant
-// des PDF n'importe où sur la page ; filtre rapide (titre, auteur, sujet,
-// nom de fichier), tri et vue (grille ou liste) mémorisés sur l'appareil.
+// des PDF n'importe où sur la page ; recherche (titre, auteur, sujet, nom de
+// fichier, et contenu des PDF côté serveur), filtres par collection et
+// étiquettes, tri et vue (grille ou liste) mémorisés sur l'appareil.
+// Recherche et filtres sont dans l'URL (?q=…&collection=…&tag=…) : ils
+// sont retrouvés en revenant d'une fiche.
 function LibraryPage() {
 	const documents = useDocuments();
+	const collections = useCollections();
 	const { mutation: upload, progress } = useUploadDocuments();
 	const isOnline = useOnlineStatus();
-	const [query, setQuery] = useState('');
+	const [searchParams, setSearchParams] = useSearchParams();
+	const query = searchParams.get('q') ?? '';
+	const { hits: contentHits, isSearching } = useContentSearch(query);
 	const [sort, setSort] = useStoredChoice('editpdf-library-sort', {
 		isValid: isValidSort,
 		fallback: DEFAULT_SORT,
@@ -35,8 +50,31 @@ function LibraryPage() {
 		fallback: DEFAULT_VIEW,
 	});
 	const fileInputRef = useRef(null);
+	const collectionsDialogRef = useRef(null);
 	const filterId = useId();
 	const sortId = useId();
+
+	const allDocuments = documents.data ?? NO_DOCUMENTS;
+	const collectionList = collections.data ?? NO_DOCUMENTS;
+	const tags = useMemo(() => collectTags(allDocuments), [allDocuments]);
+	const collectionCounts = useMemo(
+		() => countByCollection(allDocuments),
+		[allDocuments],
+	);
+	// Un filtre de l'URL qui ne désigne plus rien (collection supprimée,
+	// étiquette retirée de tous les documents) est ignoré : sinon la
+	// bibliothèque paraîtrait vide sans moyen de le retirer.
+	const collectionParam = searchParams.get('collection') ?? '';
+	const collectionId = collectionList.some(({ id }) => id === collectionParam)
+		? collectionParam
+		: '';
+	const selectedTags = useMemo(
+		() =>
+			searchParams
+				.getAll('tag')
+				.filter((name) => tags.some((tag) => tag.name === name)),
+		[searchParams, tags],
+	);
 
 	const canUpload = isOnline && !upload.isPending;
 	const { mutate: uploadFiles } = upload;
@@ -44,9 +82,28 @@ function LibraryPage() {
 	const isDragging = useFileDrop({ onDrop: handleDrop, disabled: !canUpload });
 
 	const visibleDocuments = useMemo(
-		() => filterAndSortDocuments(documents.data ?? [], { query, sort }),
-		[documents.data, query, sort],
+		() =>
+			filterAndSortDocuments(allDocuments, {
+				query,
+				sort,
+				collectionId,
+				tags: selectedTags,
+				contentHits,
+			}),
+		[allDocuments, query, sort, collectionId, selectedTags, contentHits],
 	);
+
+	// replace : taper une recherche ne doit pas remplir l'historique.
+	function updateSearchParams(update) {
+		setSearchParams(
+			(params) => {
+				const next = new URLSearchParams(params);
+				update(next);
+				return next;
+			},
+			{ replace: true },
+		);
+	}
 
 	function handleImportClick() {
 		fileInputRef.current.click();
@@ -60,7 +117,39 @@ function LibraryPage() {
 	}
 
 	function handleQueryChange(event) {
-		setQuery(event.target.value);
+		const { value } = event.target;
+		updateSearchParams((params) => {
+			if (value) params.set('q', value);
+			else params.delete('q');
+		});
+	}
+
+	function handleCollectionChange(id) {
+		updateSearchParams((params) => {
+			if (id) params.set('collection', id);
+			else params.delete('collection');
+		});
+	}
+
+	function handleTagToggle(name) {
+		const next = selectedTags.includes(name)
+			? selectedTags.filter((tag) => tag !== name)
+			: [...selectedTags, name];
+		updateSearchParams((params) => {
+			params.delete('tag');
+			for (const tag of next) params.append('tag', tag);
+		});
+	}
+
+	function handleClearFilters() {
+		updateSearchParams((params) => {
+			params.delete('collection');
+			params.delete('tag');
+		});
+	}
+
+	function handleManageCollections() {
+		collectionsDialogRef.current.showModal();
 	}
 
 	function handleSortChange(event) {
@@ -87,16 +176,22 @@ function LibraryPage() {
 			);
 		}
 		if (visibleDocuments.length === 0) {
+			if (isSearching) {
+				return <StatusMessage>Recherche dans le contenu…</StatusMessage>;
+			}
 			return (
 				<p className="library-page__empty">
-					Aucun document ne correspond à « {query} ».
+					{query.trim()
+						? `Aucun document ne correspond à « ${query.trim()} »`
+						: 'Aucun document ne correspond'}
+					{(collectionId || selectedTags.length > 0) && ' avec ces filtres'}.
 				</p>
 			);
 		}
 		return view === 'list' ? (
-			<DocumentTable documents={visibleDocuments} />
+			<DocumentTable documents={visibleDocuments} contentHits={contentHits} />
 		) : (
-			<DocumentGrid documents={visibleDocuments} />
+			<DocumentGrid documents={visibleDocuments} contentHits={contentHits} />
 		);
 	}
 
@@ -137,13 +232,13 @@ function LibraryPage() {
 				<div className="library-page__toolbar">
 					<search className="field library-page__filter">
 						<label htmlFor={filterId} className="field__label">
-							Filtrer
+							Rechercher
 						</label>
 						<input
 							id={filterId}
 							type="search"
 							className="field__input"
-							placeholder="Titre, auteur, sujet…"
+							placeholder="Titre, auteur, contenu…"
 							value={query}
 							onChange={handleQueryChange}
 						/>
@@ -185,7 +280,28 @@ function LibraryPage() {
 				</div>
 			)}
 
+			{hasDocuments && (
+				<LibraryFilters
+					collections={collectionList}
+					collectionCounts={collectionCounts}
+					documentCount={allDocuments.length}
+					tags={tags}
+					collectionId={collectionId}
+					selectedTags={selectedTags}
+					onCollectionChange={handleCollectionChange}
+					onTagToggle={handleTagToggle}
+					onClear={handleClearFilters}
+					onManageCollections={handleManageCollections}
+				/>
+			)}
+
 			{renderContent()}
+
+			<CollectionsDialog
+				ref={collectionsDialogRef}
+				collections={collectionList}
+				collectionCounts={collectionCounts}
+			/>
 
 			{isDragging && (
 				<div className="library-page__drop-overlay" aria-hidden="true">

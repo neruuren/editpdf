@@ -1,7 +1,11 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { documentsAPI } from '../utils/api';
-import { DOCUMENTS_QUERY_KEY, documentQueryKey } from '../utils/queryClient';
+import {
+	DOCUMENTS_QUERY_KEY,
+	SEARCH_QUERY_KEY,
+	documentQueryKey,
+} from '../utils/queryClient';
 
 export function useDocuments() {
 	return useQuery({
@@ -76,26 +80,46 @@ export function useUploadDocuments() {
 			}),
 		onSettled: () => {
 			setProgress(null);
+			// Les recherches déjà faites ne connaissent pas le texte des nouveaux.
+			queryClient.invalidateQueries({ queryKey: SEARCH_QUERY_KEY });
 			return queryClient.invalidateQueries({ queryKey: DOCUMENTS_QUERY_KEY });
 		},
 	});
 	return { mutation, progress };
 }
 
-// Le document modifié remplace l'ancien dans la liste et dans sa fiche.
-export function useUpdateDocument() {
+// Le document renvoyé par le serveur remplace l'ancien dans la liste et
+// dans sa fiche.
+export function replaceCachedDocument(queryClient, updated) {
+	queryClient.setQueryData(documentQueryKey(updated.id), updated);
+	queryClient.setQueryData(DOCUMENTS_QUERY_KEY, (documents) =>
+		documents?.map((document) =>
+			document.id === updated.id ? updated : document,
+		),
+	);
+}
+
+// Mutation dont le résultat est le document mis à jour.
+function useDocumentMutation(mutationFn) {
 	const queryClient = useQueryClient();
 	return useMutation({
-		mutationFn: documentsAPI.update,
-		onSuccess: (updated) => {
-			queryClient.setQueryData(documentQueryKey(updated.id), updated);
-			queryClient.setQueryData(DOCUMENTS_QUERY_KEY, (documents) =>
-				documents?.map((document) =>
-					document.id === updated.id ? updated : document,
-				),
-			);
-		},
+		mutationFn,
+		onSuccess: (updated) => replaceCachedDocument(queryClient, updated),
 	});
+}
+
+export function useUpdateDocument() {
+	return useDocumentMutation(documentsAPI.update);
+}
+
+// { id, tags } : remplace toutes les étiquettes du document.
+export function useSetDocumentTags() {
+	return useDocumentMutation(documentsAPI.setTags);
+}
+
+// { id, collectionIds } : remplace toutes ses collections.
+export function useSetDocumentCollections() {
+	return useDocumentMutation(documentsAPI.setCollections);
 }
 
 export function useDeleteDocument() {
@@ -104,6 +128,7 @@ export function useDeleteDocument() {
 		mutationFn: documentsAPI.remove,
 		onSuccess: (_data, id) => {
 			queryClient.removeQueries({ queryKey: documentQueryKey(id) });
+			queryClient.invalidateQueries({ queryKey: SEARCH_QUERY_KEY });
 			queryClient.setQueryData(DOCUMENTS_QUERY_KEY, (documents) =>
 				documents?.filter((document) => document.id !== id),
 			);

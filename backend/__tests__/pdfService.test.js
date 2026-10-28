@@ -129,3 +129,38 @@ describe('pdfService.inspectPdf : miniature', () => {
 		expect(info.thumbnail).toBeNull();
 	});
 });
+
+describe('pdfService.inspectPdf : texte', () => {
+	it('n’est extrait que sur demande', async () => {
+		const info = await pdfService.inspectPdf(await buildPdf());
+		expect(info).not.toHaveProperty('pages');
+	});
+
+	it('donne le texte de chaque page, numérotée à partir de 1', async () => {
+		const { pages } = await pdfService.inspectPdf(
+			await buildPdf({ pages: 2, text: 'Bonjour (le) monde' }),
+			{ withText: true },
+		);
+		expect(pages).toEqual([
+			{ page: 1, text: 'Bonjour (le) monde 1' },
+			{ page: 2, text: 'Bonjour (le) monde 2' },
+		]);
+	});
+
+	it('remplace les caractères de contrôle par des espaces', async () => {
+		const { pages } = await pdfService.inspectPdf(
+			await buildPdf({ text: 'a\u0002b\u0003c' }),
+			{ withText: true },
+		);
+		// eslint-disable-next-line no-control-regex
+		expect(pages[0].text).not.toMatch(/[\u0000-\u001f]/);
+	});
+
+	it('vaut une liste vide pour un PDF protégé', async () => {
+		const { pages } = await pdfService.inspectPdf(
+			await buildPdf({ text: 'Secret', password: 'secret' }),
+			{ withText: true },
+		);
+		expect(pages).toEqual([]);
+	});
+});

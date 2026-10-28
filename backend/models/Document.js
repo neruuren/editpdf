@@ -1,7 +1,10 @@
 const { getDb } = require('../config/db');
+const { compareNames } = require('../utils/validators');
 
 // 🔹 Accès à la table documents. La taille affichée est celle de la révision
 // courante (jointure) ; les chemins de fichiers ne sortent jamais de l'API.
+// Chaque document porte ses étiquettes (noms) et ses collections (ids) : la
+// bibliothèque filtre côté client.
 
 const PUBLIC_COLUMNS = `
 	d.id, d.title, d.author, d.subject, d.page_count, d.is_encrypted,
@@ -11,7 +14,7 @@ const PUBLIC_COLUMNS = `
 const FROM = `FROM documents d
 	JOIN revisions r ON r.document_id = d.id AND r.number = d.current_revision`;
 
-function toDocument(row) {
+function toDocument(row, links) {
 	if (!row) return null;
 	return {
 		id: row.id,
@@ -27,20 +30,58 @@ function toDocument(row) {
 		addedAt: row.added_at,
 		updatedAt: row.updated_at,
 		lastOpenedAt: row.last_opened_at,
+		tags: links.tags.get(row.id) ?? [],
+		collectionIds: links.collectionIds.get(row.id) ?? [],
 	};
 }
 
+// Map id du document → valeurs, triées par `name` (ordre alphabétique).
+function _groupBy(rows) {
+	const groups = new Map();
+	for (const { documentId, value } of rows.toSorted((a, b) =>
+		compareNames(a.name, b.name),
+	)) {
+		if (!groups.has(documentId)) groups.set(documentId, []);
+		groups.get(documentId).push(value);
+	}
+	return groups;
+}
+
+// Étiquettes et collections de tous les documents (`id` absent) ou d'un seul.
+// Deux requêtes en tout, quel que soit le nombre de documents.
+function _findLinks(id) {
+	const where = id ? 'WHERE dt.document_id = ?' : '';
+	const params = id ? [id] : [];
+	const db = getDb();
+	const tags = db
+		.prepare(
+			`SELECT dt.document_id AS documentId, t.name AS value, t.name
+			FROM document_tags dt JOIN tags t ON t.id = dt.tag_id ${where}`,
+		)
+		.all(...params);
+	const collectionIds = db
+		.prepare(
+			`SELECT dt.document_id AS documentId, dt.collection_id AS value, c.name
+			FROM document_collections dt JOIN collections c ON c.id = dt.collection_id
+			${where}`,
+		)
+		.all(...params);
+	return { tags: _groupBy(tags), collectionIds: _groupBy(collectionIds) };
+}
+
 function findAll() {
+	const links = _findLinks();
 	return getDb()
 		.prepare(`SELECT ${PUBLIC_COLUMNS} ${FROM} ORDER BY d.added_at DESC`)
 		.all()
-		.map(toDocument);
+		.map((row) => toDocument(row, links));
 }
 
 function findById(id) {
-	return toDocument(
-		getDb().prepare(`SELECT ${PUBLIC_COLUMNS} ${FROM} WHERE d.id = ?`).get(id),
-	);
+	const row = getDb()
+		.prepare(`SELECT ${PUBLIC_COLUMNS} ${FROM} WHERE d.id = ?`)
+		.get(id);
+	return row ? toDocument(row, _findLinks(id)) : null;
 }
 
 // Id du document qui a déjà cet original, ou null.
@@ -69,15 +110,16 @@ function exists(id) {
 	);
 }
 
+// Le texte est indexé dans la même transaction (documentService).
 function create(document) {
 	getDb()
 		.prepare(
 			`INSERT INTO documents
 				(id, title, author, subject, page_count, is_encrypted,
-				original_name, original_hash, thumbnail_path)
+				original_name, original_hash, thumbnail_path, text_indexed)
 			VALUES
 				(@id, @title, @author, @subject, @pageCount, @isEncrypted,
-				@originalName, @originalHash, @thumbnailPath)`,
+				@originalName, @originalHash, @thumbnailPath, 1)`,
 		)
 		.run({ ...document, isEncrypted: document.isEncrypted ? 1 : 0 });
 }
@@ -99,7 +141,46 @@ function update(id, fields) {
 		.run({ ...Object.fromEntries(columns.map((c) => [c, fields[c]])), id });
 }
 
-// Les révisions partent en cascade.
+// Nouvelle révision courante (ajout, restauration) : ce qui se lit dans le
+// PDF change avec elle. Titre, auteur et sujet, propres à la base, restent.
+// Le texte est réindexé dans la même transaction (text_indexed = 1).
+function setCurrentRevision(
+	id,
+	{ number, pageCount, isEncrypted, thumbnailPath },
+) {
+	getDb()
+		.prepare(
+			`UPDATE documents SET current_revision = @number,
+				page_count = @pageCount, is_encrypted = @isEncrypted,
+				thumbnail_path = @thumbnailPath, text_indexed = 1,
+				updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+			WHERE id = @id`,
+		)
+		.run({
+			id,
+			number,
+			pageCount,
+			isEncrypted: isEncrypted ? 1 : 0,
+			thumbnailPath,
+		});
+}
+
+function markTextIndexed(id) {
+	getDb().prepare('UPDATE documents SET text_indexed = 1 WHERE id = ?').run(id);
+}
+
+// Documents dont le texte reste à indexer (importés avant T1b, ou
+// indexation interrompue), les plus anciens d'abord.
+function findIdsToIndex() {
+	return getDb()
+		.prepare(
+			'SELECT id FROM documents WHERE text_indexed = 0 ORDER BY added_at',
+		)
+		.pluck()
+		.all();
+}
+
+// Révisions, liaisons et texte indexé partent en cascade.
 function remove(id) {
 	return (
 		getDb().prepare('DELETE FROM documents WHERE id = ?').run(id).changes > 0
@@ -114,5 +195,8 @@ module.exports = {
 	exists,
 	create,
 	update,
+	setCurrentRevision,
+	markTextIndexed,
+	findIdsToIndex,
 	remove,
 };

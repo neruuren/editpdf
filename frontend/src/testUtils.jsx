@@ -17,14 +17,16 @@ export function renderWithProviders(ui, { route = '/' } = {}) {
 
 // 🔹 Simule le backend : `routes` associe "METHODE /api/chemin" à une
 // réponse { status, body } (ou une fonction qui la renvoie, appelée avec les
-// options de fetch ; une promesse fait attendre la réponse).
+// options de fetch et l'URL ; une promesse fait attendre la réponse). Une
+// URL avec query string (?q=…) prend la route exacte, sinon celle du chemin seul.
 export function mockFetch(routes) {
 	globalThis.fetch = vi.fn(async (url, options = {}) => {
-		const key = `${options.method || 'GET'} ${url}`;
-		const route = routes[key];
+		const method = options.method || 'GET';
+		const route =
+			routes[`${method} ${url}`] ?? routes[`${method} ${url.split('?')[0]}`];
 		const { status = 200, body } =
 			typeof route === 'function'
-				? await route(options)
+				? await route(options, new URL(url, 'http://localhost'))
 				: (route ?? {
 						status: 404,
 						body: { success: false, error: 'Not found' },

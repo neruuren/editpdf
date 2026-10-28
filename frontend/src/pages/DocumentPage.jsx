@@ -1,24 +1,43 @@
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import ConfirmDialog from '../components/ConfirmDialog';
+import DocumentClassification from '../components/DocumentClassification';
 import DocumentMetadataForm from '../components/DocumentMetadataForm';
 import DocumentThumbnail from '../components/DocumentThumbnail';
+import RevisionHistory from '../components/RevisionHistory';
 import StatusMessage from '../components/StatusMessage';
+import { useCollections } from '../hooks/useCollections';
 import {
 	useDeleteDocument,
 	useDocument,
+	useDocuments,
 	useUpdateDocument,
 } from '../hooks/useDocuments';
 import { documentsAPI } from '../utils/api';
-import { formatDate, formatFileSize, formatPageCount } from '../utils/library';
+import {
+	collectTags,
+	formatDate,
+	formatFileSize,
+	formatPageCount,
+} from '../utils/library';
 import './DocumentPage.css';
 
+const NONE = [];
+
 // 🔹 Fiche d'un document (/documents/:id) : vignette, informations,
-// métadonnées modifiables, téléchargement et suppression. En T2, la
+// téléchargement et suppression, métadonnées modifiables, classement
+// (collections, étiquettes) et historique des révisions. En T2, la
 // visionneuse prendra cette URL et la fiche deviendra un panneau.
 function DocumentPage() {
 	const { id } = useParams();
 	const document = useDocument(id);
+	const collections = useCollections();
+	// Toute la bibliothèque : les étiquettes déjà utilisées sont suggérées.
+	const documents = useDocuments();
+	const knownTags = useMemo(
+		() => collectTags(documents.data ?? NONE).map((tag) => tag.name),
+		[documents.data],
+	);
 	const update = useUpdateDocument();
 	const remove = useDeleteDocument();
 	const navigate = useNavigate();
@@ -127,6 +146,33 @@ function DocumentPage() {
 					document={data}
 					update={update}
 				/>
+			</section>
+
+			<section
+				className="document-page__section"
+				aria-labelledby="document-page-classification"
+			>
+				<h2
+					id="document-page-classification"
+					className="document-page__subtitle"
+				>
+					Classement
+				</h2>
+				<DocumentClassification
+					document={data}
+					collections={collections.data ?? NONE}
+					knownTags={knownTags}
+				/>
+			</section>
+
+			<section
+				className="document-page__section"
+				aria-labelledby="document-page-history"
+			>
+				<h2 id="document-page-history" className="document-page__subtitle">
+					Historique
+				</h2>
+				<RevisionHistory document={data} />
 			</section>
 
 			<ConfirmDialog

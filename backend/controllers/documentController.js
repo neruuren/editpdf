@@ -85,6 +85,25 @@ exports.updateDocument = (req, res) => {
 	res.status(200).json({ success: true, data: document });
 };
 
+// @desc    Remplacer les étiquettes d'un document ({ tags: [noms] })
+// @route   PUT /api/v1/documents/:id/tags
+// @access  Private
+exports.setDocumentTags = (req, res) => {
+	const document = documentService.setDocumentTags(req.params.id, req.body);
+	res.status(200).json({ success: true, data: document });
+};
+
+// @desc    Remplacer les collections d'un document ({ collectionIds: [ids] })
+// @route   PUT /api/v1/documents/:id/collections
+// @access  Private
+exports.setDocumentCollections = (req, res) => {
+	const document = documentService.setDocumentCollections(
+		req.params.id,
+		req.body,
+	);
+	res.status(200).json({ success: true, data: document });
+};
+
 // @desc    Supprimer un document (original, révisions et miniature compris)
 // @route   DELETE /api/v1/documents/:id
 // @access  Private

@@ -1,0 +1,66 @@
+.library-filters {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: end;
+	gap: var(--space-3);
+}
+
+.library-filters__collection {
+	display: flex;
+	gap: var(--space-2);
+}
+
+.library-filters__create,
+.library-filters__clear {
+	align-self: end;
+}
+
+.library-filters__tags {
+	display: grid;
+	gap: var(--space-1);
+	flex: 1 1 16rem;
+}
+
+.library-filters__tag-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+/* Puce : compacte à l'œil, mais cible tactile pleine hauteur. */
+.library-filters__tag {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	min-block-size: var(--tap-size);
+	padding-inline: var(--space-3);
+	border: 1px solid var(--color-border);
+	border-radius: 999px;
+	font: inherit;
+	color: var(--color-text);
+	background: var(--color-surface);
+	cursor: pointer;
+}
+
+.library-filters__tag:hover {
+	border-color: var(--color-primary);
+}
+
+.library-filters__tag:focus-visible {
+	outline: 3px solid var(--color-accent);
+	outline-offset: 2px;
+}
+
+.library-filters__tag[aria-pressed='true'] {
+	border-color: var(--color-primary);
+	color: var(--color-primary-contrast);
+	background: var(--color-primary);
+}
+
+.library-filters__tag-count {
+	font-size: 0.8em;
+	opacity: 0.75;
+}

@@ -21,6 +21,8 @@ function doc(overrides) {
 		addedAt: '2026-01-01T00:00:00.000Z',
 		updatedAt: '2026-01-01T00:00:00.000Z',
 		lastOpenedAt: null,
+		tags: [],
+		collectionIds: [],
 		...overrides,
 	};
 }
@@ -45,6 +47,13 @@ function listResponse(documents) {
 	};
 }
 
+// Session ouverte, aucune collection, recherche dans le contenu sans résultat.
+const BASE_ROUTES = {
+	'GET /api/auth/me': SESSION,
+	'GET /api/v1/collections': listResponse([]),
+	'GET /api/v1/search': listResponse([]),
+};
+
 function pdfFile(name) {
 	return new File(['%PDF-1.7'], name, { type: 'application/pdf' });
 }
@@ -57,7 +66,7 @@ function fileInput() {
 describe('LibraryPage', () => {
 	it('invite à importer quand la bibliothèque est vide', async () => {
 		mockFetch({
-			'GET /api/auth/me': SESSION,
+			...BASE_ROUTES,
 			'GET /api/v1/documents': listResponse([]),
 		});
 		renderWithProviders(<App />, { route: '/' });
@@ -68,12 +77,12 @@ describe('LibraryPage', () => {
 			screen.getByRole('button', { name: 'Importer des PDF' }),
 		).toBeEnabled();
 		// Ni filtre ni tri sans document.
-		expect(screen.queryByLabelText('Filtrer')).not.toBeInTheDocument();
+		expect(screen.queryByLabelText('Rechercher')).not.toBeInTheDocument();
 	});
 
 	it('affiche les documents en grille, vignette ou cadenas', async () => {
 		mockFetch({
-			'GET /api/auth/me': SESSION,
+			...BASE_ROUTES,
 			'GET /api/v1/documents': listResponse([BAIL, IMPOTS]),
 		});
 		renderWithProviders(<App />, { route: '/' });
@@ -95,26 +104,27 @@ describe('LibraryPage', () => {
 
 	it('filtre sans tenir compte des accents', async () => {
 		mockFetch({
-			'GET /api/auth/me': SESSION,
+			...BASE_ROUTES,
 			'GET /api/v1/documents': listResponse([BAIL, IMPOTS]),
 		});
 		renderWithProviders(<App />, { route: '/' });
-		await userEvent.type(await screen.findByLabelText('Filtrer'), 'impots');
+		await userEvent.type(await screen.findByLabelText('Rechercher'), 'impots');
 		expect(screen.getByRole('link', { name: /Impôts 2026/ })).toBeVisible();
 		expect(
 			screen.queryByRole('link', { name: /Contrat de bail/ }),
 		).not.toBeInTheDocument();
 
-		await userEvent.clear(screen.getByLabelText('Filtrer'));
-		await userEvent.type(screen.getByLabelText('Filtrer'), 'zzz');
+		await userEvent.clear(screen.getByLabelText('Rechercher'));
+		await userEvent.type(screen.getByLabelText('Rechercher'), 'zzz');
+		// Après la recherche dans le contenu (sans résultat).
 		expect(
-			screen.getByText('Aucun document ne correspond à « zzz ».'),
+			await screen.findByText('Aucun document ne correspond à « zzz ».'),
 		).toBeInTheDocument();
 	});
 
 	it('passe en liste et s’en souvient sur l’appareil', async () => {
 		mockFetch({
-			'GET /api/auth/me': SESSION,
+			...BASE_ROUTES,
 			'GET /api/v1/documents': listResponse([BAIL, IMPOTS]),
 		});
 		const { unmount } = renderWithProviders(<App />, { route: '/' });
@@ -133,7 +143,7 @@ describe('LibraryPage', () => {
 
 	it('trie selon le choix et s’en souvient', async () => {
 		mockFetch({
-			'GET /api/auth/me': SESSION,
+			...BASE_ROUTES,
 			'GET /api/v1/documents': listResponse([BAIL, IMPOTS]),
 		});
 		renderWithProviders(<App />, { route: '/' });
@@ -150,7 +160,7 @@ describe('LibraryPage', () => {
 		const NEW = doc({ id: 'new', title: 'Nouveau' });
 		let uploads = 0;
 		const fetchMock = mockFetch({
-			'GET /api/auth/me': SESSION,
+			...BASE_ROUTES,
 			// Relue après l'import : le nouveau document y est.
 			'GET /api/v1/documents': () =>
 				listResponse(uploads > 0 ? [NEW, BAIL] : [BAIL]),
@@ -202,5 +212,136 @@ describe('LibraryPage', () => {
 			}),
 		);
 		expect(screen.queryByText('1 document importé.')).not.toBeInTheDocument();
+	});
+
+	it('trouve aussi un document par son contenu, avec un extrait surligné', async () => {
+		const fetchMock = mockFetch({
+			...BASE_ROUTES,
+			'GET /api/v1/documents': listResponse([BAIL, IMPOTS]),
+			'GET /api/v1/search': (_options, url) =>
+				listResponse(
+					url.searchParams.get('q') === 'loyer'
+						? [
+								{
+									documentId: 'bail',
+									page: 3,
+									pageCount: 2,
+									snippet: 'Le \u0002loyer\u0003 est payable',
+								},
+							]
+						: [],
+				),
+		});
+		renderWithProviders(<App />, { route: '/' });
+		await userEvent.type(await screen.findByLabelText('Rechercher'), 'loyer');
+
+		const bail = await screen.findByRole('link', { name: 'Contrat de bail' });
+		const card = bail.closest('li');
+		expect(card).toHaveTextContent('Page 3 et 1 autre : Le loyer est payable');
+		expect(within(card).getByText('loyer', { selector: 'mark' })).toBeVisible();
+		expect(
+			screen.queryByRole('link', { name: 'Impôts 2026' }),
+		).not.toBeInTheDocument();
+		// Une seule requête une fois la frappe calmée, pas une par lettre.
+		const searches = fetchMock.mock.calls.filter(([url]) =>
+			url.startsWith('/api/v1/search'),
+		);
+		expect(searches.map(([url]) => url)).toEqual(['/api/v1/search?q=loyer']);
+	});
+
+	it('filtre par collection et par étiquettes (toutes requises)', async () => {
+		mockFetch({
+			...BASE_ROUTES,
+			'GET /api/v1/collections': listResponse([
+				{ id: 'logement', name: 'Logement' },
+			]),
+			'GET /api/v1/documents': listResponse([
+				{ ...BAIL, tags: ['2026', 'contrat'], collectionIds: ['logement'] },
+				{ ...IMPOTS, tags: ['2026'] },
+			]),
+		});
+		renderWithProviders(<App />, { route: '/' });
+		await screen.findByRole('link', { name: 'Contrat de bail' });
+
+		const tag2026 = screen.getByRole('button', { name: '2026 2' });
+		await userEvent.click(tag2026);
+		expect(tag2026).toHaveAttribute('aria-pressed', 'true');
+		expect(
+			screen.getAllByRole('link', { name: /Contrat|Impôts/ }),
+		).toHaveLength(2);
+		await userEvent.click(screen.getByRole('button', { name: 'contrat 1' }));
+		expect(
+			screen.queryByRole('link', { name: 'Impôts 2026' }),
+		).not.toBeInTheDocument();
+
+		await userEvent.click(
+			screen.getByRole('button', { name: 'Effacer les filtres' }),
+		);
+		expect(screen.getByRole('link', { name: 'Impôts 2026' })).toBeVisible();
+
+		await userEvent.selectOptions(
+			screen.getByLabelText('Collection'),
+			'Logement (1)',
+		);
+		expect(
+			screen.queryByRole('link', { name: 'Impôts 2026' }),
+		).not.toBeInTheDocument();
+		expect(screen.getByRole('link', { name: 'Contrat de bail' })).toBeVisible();
+	});
+
+	it('reprend les filtres de l’URL et ignore ceux qui ne désignent plus rien', async () => {
+		mockFetch({
+			...BASE_ROUTES,
+			'GET /api/v1/documents': listResponse([
+				{ ...BAIL, tags: ['contrat'] },
+				IMPOTS,
+			]),
+		});
+		renderWithProviders(<App />, {
+			route: '/?tag=contrat&tag=disparue&collection=supprimee',
+		});
+		await screen.findByRole('link', { name: 'Contrat de bail' });
+		expect(screen.getByRole('button', { name: 'contrat 1' })).toHaveAttribute(
+			'aria-pressed',
+			'true',
+		);
+		expect(
+			screen.queryByRole('link', { name: 'Impôts 2026' }),
+		).not.toBeInTheDocument();
+	});
+
+	it('crée une collection depuis la bibliothèque', async () => {
+		let collections = [];
+		const fetchMock = mockFetch({
+			...BASE_ROUTES,
+			'GET /api/v1/documents': listResponse([BAIL]),
+			'GET /api/v1/collections': () => listResponse(collections),
+			'POST /api/v1/collections': (options) => {
+				const created = { id: 'c1', name: JSON.parse(options.body).name };
+				collections = [created];
+				return { status: 201, body: { success: true, data: created } };
+			},
+		});
+		renderWithProviders(<App />, { route: '/' });
+		await userEvent.click(
+			await screen.findByRole('button', { name: 'Créer une collection' }),
+		);
+		const dialog = screen.getByRole('dialog', { name: 'Collections' });
+		await userEvent.type(
+			within(dialog).getByLabelText('Nom de la nouvelle collection'),
+			'Impôts',
+		);
+		await userEvent.click(
+			within(dialog).getByRole('button', { name: 'Créer' }),
+		);
+
+		expect(
+			await within(dialog).findByLabelText('Nom de la collection Impôts'),
+		).toHaveValue('Impôts');
+		expect(fetchMock).toHaveBeenCalledWith(
+			'/api/v1/collections',
+			expect.objectContaining({ method: 'POST' }),
+		);
+		expect(await screen.findByLabelText('Collection')).toBeInTheDocument();
 	});
 });

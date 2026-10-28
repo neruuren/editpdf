@@ -19,6 +19,18 @@ const THUMBNAIL_MAX_HEIGHT = 960;
 const THUMBNAIL_MAX_SCALE = 4;
 const JPEG_QUALITY = 80;
 
+// Texte indexé pour la recherche : borné par page et par document, pour
+// qu'un PDF de 5 000 pages ou une page truffée de texte invisible ne
+// remplisse pas la base. Au-delà, la fin du document n'est pas cherchable.
+const MAX_TEXT_PER_PAGE = 100_000;
+const MAX_TEXT_PER_DOCUMENT = 5_000_000;
+// Un PDF hostile peut annoncer des centaines de milliers de pages vides mais
+// lourdes à analyser (la même page référencée en boucle) : on s'arrête à
+// 2 000 pages ou 15 secondes, sans erreur. MuPDF étant synchrone, c'est
+// aussi la durée maximale pendant laquelle l'app ne répond pas.
+const MAX_PAGES_INDEXED = 2000;
+const TEXT_TIME_BUDGET_MS = 15_000;
+
 let mupdfPromise = null;
 
 // `mupdf` est un module ESM avec top-level await : require() échoue
@@ -77,15 +89,61 @@ function _renderThumbnail(mupdf, document) {
 	}
 }
 
+// Texte de chaque page qui en contient : [{ page (1 = première), text }].
+// Un PDF scanné sans OCR n'en a pas : tableau vide. Une page illisible est
+// sautée, comme pour la miniature. Au-delà des bornes, la fin du document
+// n'est pas indexée.
+function _extractText(document) {
+	const pages = [];
+	let total = 0;
+	const pageCount = Math.min(document.countPages(), MAX_PAGES_INDEXED);
+	const deadline = Date.now() + TEXT_TIME_BUDGET_MS;
+	for (
+		let index = 0;
+		index < pageCount && total < MAX_TEXT_PER_DOCUMENT && Date.now() < deadline;
+		index++
+	) {
+		let page;
+		let structuredText;
+		try {
+			page = document.loadPage(index);
+			// dehyphenate : « factu-/ration » en fin de ligne redevient un mot.
+			structuredText = page.toStructuredText('dehyphenate');
+			const text = structuredText
+				.asText()
+				// Caractères de contrôle compris : \u0002 et \u0003 délimitent les
+				// mots trouvés dans les extraits de recherche (DocumentText).
+				// eslint-disable-next-line no-control-regex
+				.replace(/[\s\u0000-\u001f\u007f]+/g, ' ')
+				.trim()
+				.slice(0, Math.min(MAX_TEXT_PER_PAGE, MAX_TEXT_PER_DOCUMENT - total));
+			if (text) {
+				pages.push({ page: index + 1, text });
+				total += text.length;
+			}
+		} catch {
+			// page suivante
+		} finally {
+			structuredText?.destroy();
+			page?.destroy();
+		}
+	}
+	return pages;
+}
+
 // Ouvre un PDF (Buffer ou Uint8Array) et en lit ce qu'on en montre dans la
 // bibliothèque. Un fichier qui n'est pas un PDF lisible → 422.
 // Un PDF protégé par mot de passe d'ouverture s'ouvre quand même : on sait
 // compter ses pages, mais ses métadonnées sont chiffrées, d'où null, et sa
 // page 1 ne peut pas être rendue.
 // `withThumbnail` : ajoute `thumbnail` (JPEG en Buffer, ou null).
-// ⚠️ MuPDF est synchrone : le rendu bloque la boucle d'événements le temps
-// de dessiner la page (quelques dizaines de ms en général).
-async function inspectPdf(data, { withThumbnail = false } = {}) {
+// `withText` : ajoute `pages` (voir _extractText ; vide si protégé).
+// ⚠️ MuPDF est synchrone : le rendu et l'extraction bloquent la boucle
+// d'événements (quelques dizaines de ms par page en général).
+async function inspectPdf(
+	data,
+	{ withThumbnail = false, withText = false } = {},
+) {
 	if (!hasPdfSignature(data)) {
 		throw new ErrorResponse('Ce fichier n’est pas un PDF', 422);
 	}
@@ -103,6 +161,9 @@ async function inspectPdf(data, { withThumbnail = false } = {}) {
 		};
 		if (withThumbnail) {
 			info.thumbnail = needsPassword ? null : _renderThumbnail(mupdf, document);
+		}
+		if (withText) {
+			info.pages = needsPassword ? [] : _extractText(document);
 		}
 		return info;
 	} catch {

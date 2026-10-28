@@ -33,9 +33,9 @@ Livrée en deux temps : **T1a** (import, fiche, grille et liste) puis **T1b** (r
 
 ### T1b
 
-- [ ] Recherche plein texte dans le contenu (texte extrait → FTS5) (S)
-- [ ] Collections et étiquettes, filtres par collection et étiquette
-- [ ] Historique des révisions d'un document : liste, restauration, téléchargement (ADR 0006)
+- [x] Recherche plein texte dans le contenu (texte extrait → FTS5, sans accents, par début de mot), dans le même champ que le filtre rapide, avec la page et un extrait surligné (S)
+- [x] Collections (n-n, gérées depuis la bibliothèque ou la fiche) et étiquettes libres ; barre de filtres (une collection, plusieurs étiquettes toutes requises), filtres dans l'URL
+- [x] Historique des révisions d'un document : liste, téléchargement, « Nouvelle version » (PDF modifié ailleurs), restauration par copie, suppression à la main, rétention `REVISIONS_KEEP` (ADR 0006) (S)
 
 ## T2 : visionneuse
 

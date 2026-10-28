@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { uploadPdf } = require('../middleware/upload');
-const ErrorResponse = require('../utils/errorResponse');
+const { uuidParam } = require('../utils/validators');
 const revisionRoutes = require('./revisionRoutes');
 const {
 	getDocuments,
@@ -11,19 +11,11 @@ const {
 	deleteDocument,
 	getDocumentThumbnail,
 	getDocumentFile,
+	setDocumentTags,
+	setDocumentCollections,
 } = require('../controllers/documentController');
 
-// Ids générés par le serveur (crypto.randomUUID) : tout autre id est une 404
-// avant même d'atteindre la base ou le disque (défense en profondeur).
-const DOCUMENT_ID =
-	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-router.param('id', (req, res, next, id) => {
-	next(
-		DOCUMENT_ID.test(id)
-			? undefined
-			: new ErrorResponse('Document non trouvé', 404),
-	);
-});
+router.param('id', uuidParam('Document non trouvé'));
 
 // L'auth (protect) et le contrôle d'origine (sameOrigin) sont appliqués à
 // tout /api dans server.js.
@@ -36,5 +28,7 @@ router
 	.delete(deleteDocument);
 router.get('/:id/thumbnail', getDocumentThumbnail);
 router.get('/:id/file', getDocumentFile);
+router.put('/:id/tags', setDocumentTags);
+router.put('/:id/collections', setDocumentCollections);
 
 module.exports = router;

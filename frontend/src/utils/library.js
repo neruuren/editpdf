@@ -58,26 +58,92 @@ export function isValidView(view) {
 	return VIEW_OPTIONS.some((option) => option.value === view);
 }
 
-// 🔹 Documents dont le titre, l'auteur, le sujet ou le nom de fichier
-// contiennent `query` (sans casse ni accents), triés selon `sort`. À égalité,
-// le titre départage. La recherche dans le contenu des PDF arrive en T1b.
-export function filterAndSortDocuments(documents, { query = '', sort }) {
+function matchesMetadata(document, terms) {
+	const text = normalize(
+		[
+			document.title,
+			document.author,
+			document.subject,
+			document.originalName,
+		].join(' '),
+	);
+	return terms.every((term) => text.includes(term));
+}
+
+// Clé d'une étiquette : le serveur les dédoublonne sans casse.
+const tagKey = (name) => name.toLocaleLowerCase('fr');
+
+// 🔹 Documents de la bibliothèque à afficher, triés selon `sort` (à
+// égalité, le titre départage) :
+// - `query` : trouvé dans le titre, l'auteur, le sujet ou le nom de fichier
+//   (sans casse ni accents), OU dans le contenu (`contentHits`, Map
+//   documentId → résultat de la recherche plein texte du serveur) ;
+// - `collectionId` : rangé dans cette collection ;
+// - `tags` : porte TOUTES ces étiquettes.
+export function filterAndSortDocuments(
+	documents,
+	{ query = '', sort, collectionId = '', tags = [], contentHits = new Map() },
+) {
 	const terms = normalize(query).split(/\s+/).filter(Boolean);
+	const tagKeys = tags.map(tagKey);
 	const compare = COMPARATORS[sort] ?? COMPARATORS[DEFAULT_SORT];
 	return documents
-		.filter((document) => {
-			if (terms.length === 0) return true;
-			const text = normalize(
-				[
-					document.title,
-					document.author,
-					document.subject,
-					document.originalName,
-				].join(' '),
-			);
-			return terms.every((term) => text.includes(term));
-		})
+		.filter(
+			(document) =>
+				(terms.length === 0 ||
+					matchesMetadata(document, terms) ||
+					contentHits.has(document.id)) &&
+				(!collectionId || document.collectionIds.includes(collectionId)) &&
+				tagKeys.every((key) => document.tags.some((t) => tagKey(t) === key)),
+		)
 		.toSorted((a, b) => compare(a, b) || COMPARATORS.title(a, b));
+}
+
+// 🔹 Étiquettes portées par au moins un document : [{ name, count }] par
+// ordre alphabétique.
+export function collectTags(documents) {
+	const counts = new Map();
+	for (const document of documents) {
+		for (const name of document.tags) {
+			const key = tagKey(name);
+			const entry = counts.get(key) ?? { name, count: 0 };
+			entry.count += 1;
+			counts.set(key, entry);
+		}
+	}
+	return [...counts.values()].toSorted((a, b) =>
+		collator.compare(a.name, b.name),
+	);
+}
+
+// Map collectionId → nombre de documents rangés dedans.
+export function countByCollection(documents) {
+	const counts = new Map();
+	for (const document of documents) {
+		for (const id of document.collectionIds) {
+			counts.set(id, (counts.get(id) ?? 0) + 1);
+		}
+	}
+	return counts;
+}
+
+// Délimiteurs des mots trouvés dans un extrait (models/DocumentText.js du
+// backend).
+const MARK_START = '\u0002';
+const MARK_END = '\u0003';
+
+// 🔹 Extrait renvoyé par la recherche → [{ text, isMatch }], à afficher
+// avec <mark> sans jamais l'interpréter comme du HTML.
+export function splitSnippet(snippet) {
+	const parts = [];
+	for (const [index, chunk] of snippet.split(MARK_START).entries()) {
+		const end = index === 0 ? -1 : chunk.indexOf(MARK_END);
+		const match = end === -1 ? '' : chunk.slice(0, end);
+		const rest = end === -1 ? chunk : chunk.slice(end + 1);
+		if (match) parts.push({ text: match, isMatch: true });
+		if (rest) parts.push({ text: rest, isMatch: false });
+	}
+	return parts;
 }
 
 const sizeFormatter = new Intl.NumberFormat('fr', { maximumFractionDigits: 1 });
@@ -94,6 +160,16 @@ const dateFormatter = new Intl.DateTimeFormat('fr', { dateStyle: 'medium' });
 
 export function formatDate(isoDate) {
 	return isoDate ? dateFormatter.format(new Date(isoDate)) : '—';
+}
+
+const dateTimeFormatter = new Intl.DateTimeFormat('fr', {
+	dateStyle: 'medium',
+	timeStyle: 'short',
+});
+
+// Historique des révisions : plusieurs peuvent dater du même jour.
+export function formatDateTime(isoDate) {
+	return dateTimeFormatter.format(new Date(isoDate));
 }
 
 export function formatPageCount(count) {

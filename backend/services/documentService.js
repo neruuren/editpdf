@@ -2,22 +2,31 @@ const crypto = require('crypto');
 const fs = require('fs/promises');
 const path = require('path');
 const { getDb } = require('../config/db');
+const Collection = require('../models/Collection');
 const Document = require('../models/Document');
+const DocumentText = require('../models/DocumentText');
 const Revision = require('../models/Revision');
+const Tag = require('../models/Tag');
 const pdfService = require('./pdfService');
 const storageService = require('./storageService');
+const { serialize } = require('./writeQueue');
 const ErrorResponse = require('../utils/errorResponse');
+const {
+	parseLabel,
+	parseList,
+	stripInvisible,
+} = require('../utils/validators');
 
 const MAX_NAME_LENGTH = 255;
+const MAX_TAG_LENGTH = 60;
+const MAX_LINKS_PER_DOCUMENT = 50;
 
 // Nom de fichier venu du client, gardé pour le téléchargement et comme
-// titre de secours : sans chemin ni caractère de contrôle ou de format
-// (U+202E et autres marques bidi qui maquilleraient le nom), longueur bornée.
+// titre de secours : sans chemin ni caractère invisible, longueur bornée.
 function _cleanOriginalName(originalname) {
-	const name = path
-		.basename(String(originalname ?? '').replaceAll('\\', '/'))
-		// eslint-disable-next-line no-control-regex
-		.replace(/[\u0000-\u001f\u007f\p{Cf}]/gu, '')
+	const name = stripInvisible(
+		path.basename(String(originalname ?? '').replaceAll('\\', '/')),
+	)
 		.trim()
 		.slice(0, MAX_NAME_LENGTH);
 	return name || 'document.pdf';
@@ -29,7 +38,7 @@ function _titleFromName(name) {
 
 // 🔹 Importe un PDF reçu par multer (fichier dans tmp/) : dédoublonnage,
 // validation et lecture par MuPDF, rangement de l'original (révision 0) et
-// de la miniature, insertion. Quoi qu'il arrive, plus rien ne traîne dans
+// de la miniature, insertion avec le texte à indexer. Quoi qu'il arrive, plus rien ne traîne dans
 // tmp/ à la fin, ni dans documents/ en cas d'échec.
 async function importDocument(upload) {
 	let id = null;
@@ -45,7 +54,10 @@ async function importDocument(upload) {
 			});
 		}
 
-		const info = await pdfService.inspectPdf(data, { withThumbnail: true });
+		const info = await pdfService.inspectPdf(data, {
+			withThumbnail: true,
+			withText: true,
+		});
 		if (info.pageCount < 1) {
 			throw new ErrorResponse('Ce PDF ne contient aucune page', 422);
 		}
@@ -77,6 +89,7 @@ async function importDocument(upload) {
 				hash: originalHash,
 				origin: 'upload',
 			});
+			DocumentText.replace(id, info.pages);
 		})();
 		return Document.findById(id);
 	} catch (error) {
@@ -87,12 +100,16 @@ async function importDocument(upload) {
 	}
 }
 
-async function deleteDocument(id) {
-	if (!Document.remove(id)) {
-		throw new ErrorResponse('Document non trouvé', 404);
-	}
-	// Après la base : un fichier orphelin vaut mieux qu'une ligne sans fichier.
-	await storageService.removeDocumentFiles(id);
+// Après les écritures de révision en cours (writeQueue) : sinon elles
+// recréeraient le dossier du document supprimé.
+function deleteDocument(id) {
+	return serialize(async () => {
+		if (!Document.remove(id)) {
+			throw new ErrorResponse('Document non trouvé', 404);
+		}
+		// Après la base : un fichier orphelin vaut mieux qu'une ligne sans fichier.
+		await storageService.removeDocumentFiles(id);
+	});
 }
 
 // Champs modifiables (en base seulement : le PDF n'est pas réécrit) :
@@ -152,26 +169,41 @@ function updateDocument(id, body) {
 
 // Un numéro de révision dans l'URL : entier positif ou nul, rien d'autre
 // (« 1e3 », « 01 », « -1 » sont refusés).
-function _parseRevisionNumber(value) {
+function parseRevisionNumber(value) {
 	if (!/^(0|[1-9]\d{0,8})$/.test(value)) {
 		throw new ErrorResponse('Numéro de révision invalide', 400);
 	}
 	return Number(value);
 }
 
-// 🔹 Fichier PDF à servir : la révision courante (`revision` absent) ou une
-// révision donnée. Renvoie le chemin absolu et le nom proposé au téléchargement.
+// « Contrat.pdf » → « Contrat (révision 3).pdf » : deux révisions
+// téléchargées ne s'écrasent pas dans le dossier de l'appareil.
+function _revisionDownloadName(originalName, number) {
+	if (number === 0) return originalName;
+	const { name, ext } = path.parse(originalName);
+	return `${name} (révision ${number})${ext}`;
+}
+
+// 🔹 Fichier PDF à servir : la révision courante (`revision` absent), sous
+// le nom d'origine, ou une révision donnée. Renvoie le chemin absolu et le
+// nom proposé au téléchargement.
 function getPdfFile(id, revision) {
 	const document = Document.findById(id);
 	if (!document) throw new ErrorResponse('Document non trouvé', 404);
-	const relativePath =
-		revision === undefined
-			? Revision.findCurrentPath(id)
-			: Revision.findPath(id, _parseRevisionNumber(revision));
+	if (revision === undefined) {
+		const currentPath = Revision.findCurrentPath(id);
+		if (!currentPath) throw new ErrorResponse('Révision non trouvée', 404);
+		return {
+			filePath: storageService.resolve(currentPath),
+			downloadName: document.originalName,
+		};
+	}
+	const number = parseRevisionNumber(revision);
+	const relativePath = Revision.findPath(id, number);
 	if (!relativePath) throw new ErrorResponse('Révision non trouvée', 404);
 	return {
 		filePath: storageService.resolve(relativePath),
-		downloadName: document.originalName,
+		downloadName: _revisionDownloadName(document.originalName, number),
 	};
 }
 
@@ -184,10 +216,49 @@ function getThumbnailFile(id) {
 	return storageService.resolve(thumbnailPath);
 }
 
+// Corps { tags: ['facture', '2026'] } : remplace toutes les étiquettes du
+// document. Les doublons (sans casse) sont fusionnés, l'ordre ignoré.
+function setDocumentTags(id, body) {
+	if (!Document.exists(id)) throw new ErrorResponse('Document non trouvé', 404);
+	const values = parseList(body?.tags, {
+		field: 'Étiquettes',
+		max: MAX_LINKS_PER_DOCUMENT,
+	});
+	const tags = new Map();
+	for (const value of values) {
+		const tag = parseLabel(value, { field: 'Étiquette', max: MAX_TAG_LENGTH });
+		if (!tags.has(tag.nameKey)) tags.set(tag.nameKey, tag);
+	}
+	getDb().transaction(() => Tag.setForDocument(id, [...tags.values()]))();
+	return Document.findById(id);
+}
+
+// Corps { collectionIds: [...] } : remplace toutes les collections du
+// document. Une collection inconnue (supprimée entre-temps) est une erreur.
+function setDocumentCollections(id, body) {
+	if (!Document.exists(id)) throw new ErrorResponse('Document non trouvé', 404);
+	const values = parseList(body?.collectionIds, {
+		field: 'Collections',
+		max: MAX_LINKS_PER_DOCUMENT,
+	});
+	if (values.some((value) => typeof value !== 'string')) {
+		throw new ErrorResponse('Collections : ids invalides', 400);
+	}
+	const collectionIds = [...new Set(values)];
+	if (Collection.findMissingIds(collectionIds).length > 0) {
+		throw new ErrorResponse('Collection non trouvée', 400);
+	}
+	getDb().transaction(() => Collection.setForDocument(id, collectionIds))();
+	return Document.findById(id);
+}
+
 module.exports = {
 	importDocument,
 	deleteDocument,
 	updateDocument,
+	setDocumentTags,
+	setDocumentCollections,
+	parseRevisionNumber,
 	getPdfFile,
 	getThumbnailFile,
 };

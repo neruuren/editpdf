@@ -48,21 +48,26 @@ export const authAPI = {
 	},
 };
 
+const documentPath = (id) => `/v1/documents/${encodeURIComponent(id)}`;
+
 export const documentsAPI = {
 	list: () => request('/v1/documents'),
-	get: (id) => request(`/v1/documents/${encodeURIComponent(id)}`),
+	get: (id) => request(documentPath(id)),
 	upload: (file) => {
 		const formData = new FormData();
 		formData.append('file', file);
 		return request('/v1/documents', { method: 'POST', body: formData });
 	},
 	update: ({ id, changes }) =>
-		request(`/v1/documents/${encodeURIComponent(id)}`, {
-			method: 'PATCH',
-			body: changes,
+		request(documentPath(id), { method: 'PATCH', body: changes }),
+	remove: (id) => request(documentPath(id), { method: 'DELETE' }),
+	setTags: ({ id, tags }) =>
+		request(`${documentPath(id)}/tags`, { method: 'PUT', body: { tags } }),
+	setCollections: ({ id, collectionIds }) =>
+		request(`${documentPath(id)}/collections`, {
+			method: 'PUT',
+			body: { collectionIds },
 		}),
-	remove: (id) =>
-		request(`/v1/documents/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 	// URL directes (<img>, lien de téléchargement) : le cookie de session part
 	// avec, même origine. `?v=` change avec la révision courante : le cache
 	// du navigateur ne montre jamais une ancienne miniature.
@@ -71,4 +76,39 @@ export const documentsAPI = {
 	fileUrl: (id) => `/api/v1/documents/${encodeURIComponent(id)}/file`,
 	revisionFileUrl: (id, number) =>
 		`/api/v1/documents/${encodeURIComponent(id)}/revisions/${number}/file`,
+};
+
+// Les mutations renvoient le document mis à jour (sauf remove).
+export const revisionsAPI = {
+	list: (id) => request(`${documentPath(id)}/revisions`),
+	upload: ({ id, file }) => {
+		const formData = new FormData();
+		formData.append('file', file);
+		return request(`${documentPath(id)}/revisions`, {
+			method: 'POST',
+			body: formData,
+		});
+	},
+	restore: ({ id, number }) =>
+		request(`${documentPath(id)}/revisions/${number}/restore`, {
+			method: 'POST',
+		}),
+	remove: ({ id, number }) =>
+		request(`${documentPath(id)}/revisions/${number}`, { method: 'DELETE' }),
+};
+
+const collectionPath = (id) => `/v1/collections/${encodeURIComponent(id)}`;
+
+export const collectionsAPI = {
+	list: () => request('/v1/collections'),
+	create: (name) =>
+		request('/v1/collections', { method: 'POST', body: { name } }),
+	rename: ({ id, name }) =>
+		request(collectionPath(id), { method: 'PATCH', body: { name } }),
+	remove: (id) => request(collectionPath(id), { method: 'DELETE' }),
+};
+
+// Recherche dans le contenu : [{ documentId, page, snippet, pageCount }].
+export const searchAPI = {
+	search: (query) => request(`/v1/search?q=${encodeURIComponent(query)}`),
 };

@@ -39,10 +39,63 @@ function saveOriginal(tmpPath, id) {
 	);
 }
 
+// Nouvelle version envoyée : même principe que l'original.
+function saveRevision(tmpPath, id, number) {
+	return _write(path.join(_documentDir(id), `r${number}.pdf`), (target) =>
+		fs.rename(tmpPath, target),
+	);
+}
+
+// Restauration : la révision restaurée est copiée, jamais déplacée.
+function copyRevision(sourcePath, id, number) {
+	return _write(path.join(_documentDir(id), `r${number}.pdf`), (target) =>
+		fs.copyFile(resolve(sourcePath), target),
+	);
+}
+
+function _thumbnailPath(id) {
+	return path.join(_documentDir(id), 'thumbnail.jpg');
+}
+
+// Écrase la miniature précédente (l'URL du client change avec la révision).
 function saveThumbnail(id, data) {
-	return _write(path.join(_documentDir(id), 'thumbnail.jpg'), (target) =>
+	return _write(_thumbnailPath(id), (target) => fs.writeFile(target, data));
+}
+
+// Nouvelle révision : la miniature est préparée à côté de l'actuelle, puis
+// mise en place seulement une fois la révision enregistrée en base
+// (commitThumbnail), ou jetée en cas d'échec (discardThumbnail).
+// stageThumbnail renvoie le chemin définitif, celui à enregistrer en base.
+function _stagedThumbnailPath(id) {
+	return path.join(_documentDir(id), 'thumbnail.next.jpg');
+}
+
+async function stageThumbnail(id, data) {
+	await _write(_stagedThumbnailPath(id), (target) =>
 		fs.writeFile(target, data),
 	);
+	return _thumbnailPath(id);
+}
+
+async function commitThumbnail(id) {
+	await fs.rename(
+		resolve(_stagedThumbnailPath(id)),
+		resolve(_thumbnailPath(id)),
+	);
+}
+
+async function discardThumbnail(id) {
+	await fs.rm(resolve(_stagedThumbnailPath(id)), { force: true });
+}
+
+// Une nouvelle révision protégée par mot de passe n'a plus de miniature.
+async function removeThumbnail(id) {
+	await fs.rm(resolve(_thumbnailPath(id)), { force: true });
+}
+
+// Fichier d'une révision supprimée (chemin venu de la base).
+async function removeFile(relativePath) {
+	await fs.rm(resolve(relativePath), { force: true });
 }
 
 // Suppression best effort : un dossier déjà absent n'est pas une erreur.
@@ -65,7 +118,14 @@ module.exports = {
 	TMP_DIR,
 	resolve,
 	saveOriginal,
+	saveRevision,
+	copyRevision,
 	saveThumbnail,
+	stageThumbnail,
+	commitThumbnail,
+	discardThumbnail,
+	removeThumbnail,
+	removeFile,
 	removeDocumentFiles,
 	removeTmpFile,
 	clearTmp,

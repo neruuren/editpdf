@@ -1,10 +1,12 @@
 import { Link } from 'react-router-dom';
+import DocumentSnippet from './DocumentSnippet';
 import { formatDate, formatFileSize } from '../utils/library';
 import './DocumentTable.css';
 
 // 🔹 Vue « liste » de la bibliothèque : un tableau compact. Le tri se
 // choisit au-dessus (même réglage que la grille), pas dans les en-têtes.
-function DocumentTable({ documents }) {
+// Un document trouvé par son contenu montre l'extrait sous son titre.
+function DocumentTable({ documents, contentHits }) {
 	return (
 		<div className="document-table">
 			<table className="document-table__table">
@@ -37,6 +39,9 @@ function DocumentTable({ documents }) {
 									<span className="document-table__author">
 										{document.author}
 									</span>
+								)}
+								{contentHits?.has(document.id) && (
+									<DocumentSnippet hit={contentHits.get(document.id)} />
 								)}
 							</td>
 							<td className="document-table__number">{document.pageCount}</td>
