@@ -4,12 +4,14 @@ const env = require('../config/env');
 
 // 🔹 Fichiers des documents dans DATA_DIR (volume Docker en prod) :
 //   documents/<id>/original.pdf, documents/<id>/r<n>.pdf (révisions),
-//   documents/<id>/thumbnail.jpg, tmp/ (uploads en cours de validation).
+//   documents/<id>/thumbnail.jpg, stamps/<id>.png (tampons image),
+//   tmp/ (uploads en cours de validation).
 // Un dossier par document : le supprimer emporte tout ce qui le concerne.
 // La base ne stocke que des chemins RELATIFS à DATA_DIR : le dossier peut
 // être déplacé (autre volume, restauration de sauvegarde) sans migration.
 
 const DOCUMENTS_DIR = 'documents';
+const STAMPS_DIR = 'stamps';
 const TMP_DIR = path.join(env.dataDir, 'tmp');
 
 // Chemin relatif (venu de la base) → absolu, sans jamais sortir de DATA_DIR.
@@ -103,6 +105,14 @@ async function removeDocumentFiles(id) {
 	await fs.rm(resolve(_documentDir(id)), { recursive: true, force: true });
 }
 
+// Tampon image : le PNG produit par le serveur (jamais le fichier envoyé).
+// Renvoie le chemin relatif à enregistrer en base.
+function saveStampImage(id, data) {
+	return _write(path.join(STAMPS_DIR, `${id}.png`), (target) =>
+		fs.writeFile(target, data),
+	);
+}
+
 async function removeTmpFile(absolutePath) {
 	if (absolutePath) await fs.rm(absolutePath, { force: true });
 }
@@ -127,6 +137,7 @@ module.exports = {
 	removeThumbnail,
 	removeFile,
 	removeDocumentFiles,
+	saveStampImage,
 	removeTmpFile,
 	clearTmp,
 };

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import FreeTextEditor from './FreeTextEditor';
 import PdfAnnotationLayer from './PdfAnnotationLayer';
+import PdfDrawingLayer from './PdfDrawingLayer';
 import PdfTextLayer from './PdfTextLayer';
 import { annotationAt, pagePointAt } from '../utils/annotations';
 import './PdfPageView.css';
@@ -12,15 +13,20 @@ const RENDER_DELAY_MS = 80;
 const MAX_PIXEL_RATIO = 3;
 
 const NO_ANNOTATIONS = [];
+// Outils qui tracent sur la page (PdfDrawingLayer).
+const DRAWING_TOOLS = new Set(['draw', 'eraser', 'shape']);
+// Outils qui posent une annotation d'un clic.
+const PLACING_TOOLS = new Set(['note', 'text', 'stamp']);
 
 // 🔹 Une page de la visionneuse, montée par PdfPages seulement quand elle
 // est proche de l'écran : un emplacement à sa taille et son rendu par le
 // moteur PDF sur un <canvas> à la résolution de l'écran. Pendant un
 // changement de zoom, l'ancien rendu reste affiché, étiré, jusqu'au nouveau.
 // Par-dessus, le calque de texte (sélection, surlignage des `highlights` de
-// la recherche) puis celui des annotations, sauf `withTextLayer={false}`
+// la recherche) puis celui des annotations et, avec un outil qui trace
+// (dessin, gomme, forme), le calque de tracé ; sauf `withTextLayer={false}`
 // (présentation). `annotating` (PdfViewer) : version de la page (elle est
-// redessinée à chaque modification), mode et outil d'annotation,
+// redessinée à chaque modification), mode et outil d'annotation, styles,
 // annotation sélectionnée, éditeur de texte libre et leurs actions.
 function PdfPageView({
 	pdf,
@@ -37,6 +43,8 @@ function PdfPageView({
 	const elementRef = useRef(null);
 	const [status, setStatus] = useState('empty');
 	const [annotations, setAnnotations] = useState(NO_ANNOTATIONS);
+	// Version de la page affichée sur le canvas (aperçus des tracés posés).
+	const [renderedVersion, setRenderedVersion] = useState(null);
 	const version = annotating?.pageVersion(index) ?? '';
 	const page = pdf.pages[index];
 
@@ -60,6 +68,7 @@ function PdfPageView({
 				canvas.getContext('2d')?.drawImage(bitmap, 0, 0);
 				bitmap.close();
 				setStatus('rendered');
+				setRenderedVersion(version);
 			} catch (error) {
 				if (error.name !== 'AbortError') setStatus('error');
 			}
@@ -98,13 +107,13 @@ function PdfPageView({
 		if (item !== selected.annotation) onSelectedChange(index, item);
 	}, [annotations, selected, index, onSelectedChange]);
 
-	// Clic sur la page en mode annotation : poser une note ou un texte libre
-	// (selon l'outil), sinon sélectionner l'annotation touchée.
+	// Clic sur la page en mode annotation : poser une note, un texte libre
+	// ou un tampon (selon l'outil), sinon sélectionner l'annotation touchée.
 	function handleClick(event) {
 		if (!annotating?.isAnnotating || !withTextLayer) return;
 		const point = pagePointAt(event, elementRef.current, page, scale, rotation);
 		const { tool } = annotating;
-		if (tool === 'note' || tool === 'text') {
+		if (PLACING_TOOLS.has(tool)) {
 			annotating.onPlace(index, tool, point);
 			return;
 		}
@@ -116,6 +125,11 @@ function PdfPageView({
 
 	const textEditor =
 		annotating?.textEditor?.page === index ? annotating.textEditor : null;
+	const isDrawing =
+		withAnnotations &&
+		annotating.isAnnotating &&
+		!annotating.isLocked &&
+		DRAWING_TOOLS.has(annotating.tool);
 
 	return (
 		// Le clic sur la page n'est qu'un raccourci de la souris ou du doigt :
@@ -171,6 +185,28 @@ function PdfPageView({
 						/>
 					)}
 				</PdfAnnotationLayer>
+			)}
+			{isDrawing && (
+				<PdfDrawingLayer
+					page={page}
+					scale={scale}
+					rotation={rotation}
+					tool={annotating.tool}
+					shapeType={annotating.shapeType}
+					drawStyle={annotating.drawStyle}
+					shapeStyle={annotating.shapeStyle}
+					annotations={annotations}
+					renderedVersion={renderedVersion}
+					hasPen={annotating.hasPen}
+					onPen={annotating.onPen}
+					onStroke={(points, startedAt) =>
+						annotating.onStroke(index, points, startedAt)
+					}
+					onErase={(points, radius) =>
+						annotating.onErase(index, points, radius)
+					}
+					onShape={(geometry) => annotating.onShape(index, geometry)}
+				/>
 			)}
 			{status !== 'rendered' && (
 				<span className="pdf-page-view__placeholder" aria-hidden="true">

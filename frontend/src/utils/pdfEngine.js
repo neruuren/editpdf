@@ -80,8 +80,18 @@ function _pdf(documentId, info) {
 			call('annotations', { documentId, index }, { signal }),
 		getAnnotationPages: (from, count, { signal } = {}) =>
 			call('annotationPages', { documentId, from, count }, { signal }),
-		createAnnotation: (index, spec, { author }) =>
-			call('createAnnotation', { documentId, index, spec, author }),
+		// L'image d'un tampon est copiée : celle de l'appelant reste intacte.
+		createAnnotation: (index, spec, { author }) => {
+			if (!spec.image) {
+				return call('createAnnotation', { documentId, index, spec, author });
+			}
+			const image = spec.image.slice();
+			return call(
+				'createAnnotation',
+				{ documentId, index, spec: { ...spec, image }, author },
+				{ transfer: [image.buffer] },
+			);
+		},
 		// `annotationId` : `id` est celui de la requête (call).
 		updateAnnotation: (index, annotationId, changes) =>
 			call('updateAnnotation', { documentId, index, annotationId, changes }),
@@ -89,6 +99,9 @@ function _pdf(documentId, info) {
 			call('deleteAnnotation', { documentId, index, annotationId }),
 		removeMarkup: (index, from, to) =>
 			call('removeMarkup', { documentId, index, from, to }),
+		eraseInk: (index, points, radius) =>
+			call('eraseInk', { documentId, index, points, radius }),
+		flatten: () => call('flatten', { documentId }),
 		undo: () => call('history', { documentId, direction: -1 }),
 		redo: () => call('history', { documentId, direction: 1 }),
 		save: () => call('save', { documentId }),
@@ -123,7 +136,9 @@ function _pdf(documentId, info) {
 //   createAnnotation(index, spec, { author }) → { id, page, canUndo,
 //   canRedo, isDirty } ; updateAnnotation(index, id, changes),
 //   deleteAnnotation(index, id), removeMarkup(index, from, to) (retire
-//   surlignages… des caractères from à to ; + count), undo(), redo() →
+//   surlignages… des caractères from à to ; + count), eraseInk(index,
+//   points, radius) (gomme : traits des dessins touchés ; + count),
+//   flatten() (aplatit toutes les annotations ; + count), undo(), redo() →
 //   { page (null : toutes), canUndo, canRedo, isDirty } ;
 // - save() → Uint8Array : le PDF modifié (enregistrement incrémental) ;
 // - unlock(password) → document déverrouillé | null ;

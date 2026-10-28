@@ -70,6 +70,25 @@
 	inline-size: auto;
 }
 
+.annotation-toolbar__field-label {
+	font-size: 0.875em;
+	color: var(--color-text-muted);
+	white-space: nowrap;
+}
+
+.annotation-toolbar__stamp {
+	flex: none;
+	gap: var(--space-2);
+	max-inline-size: 14rem;
+	font-weight: 400;
+}
+
+.annotation-toolbar__stamp-label {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 .annotation-toolbar__svg {
 	inline-size: 1.25rem;
 	block-size: 1.25rem;
@@ -80,14 +99,26 @@
 	stroke-linejoin: round;
 }
 
-/* Petit écran : les outils n'ont plus que leur icône (le libellé reste
-   pour les lecteurs d'écran). */
+/* Huit outils et leurs réglages : sous 90rem, les outils n'ont plus que
+   leur icône (le libellé reste pour les lecteurs d'écran et en infobulle). */
+@media (width < 90rem) {
+	.annotation-toolbar__label {
+		position: absolute;
+		inline-size: 1px;
+		block-size: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
+}
+
+/* Petit écran : les réglages perdent aussi leur libellé visible. */
 @media (width < 40rem) {
 	.annotation-toolbar__save {
 		padding-inline: var(--space-2);
 	}
 
-	.annotation-toolbar__label {
+	.annotation-toolbar__field-label {
 		position: absolute;
 		inline-size: 1px;
 		block-size: 1px;

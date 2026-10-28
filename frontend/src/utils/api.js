@@ -137,6 +137,37 @@ export const collectionsAPI = {
 	remove: (id) => request(collectionPath(id), { method: 'DELETE' }),
 };
 
+const stampPath = (id) => `/v1/stamps/${encodeURIComponent(id)}`;
+
+// Tampons image : [{ id, name, width, height (pixels), size, createdAt }].
+export const stampsAPI = {
+	list: () => request('/v1/stamps'),
+	// `name` facultatif (nom du fichier sinon) ; 409 avec data.stampId si la
+	// même image existe déjà.
+	create: ({ file, name }) => {
+		const formData = new FormData();
+		// Le champ avant le fichier : le serveur les lit dans l'ordre.
+		if (name) formData.append('name', name);
+		formData.append('file', file);
+		return request('/v1/stamps', { method: 'POST', body: formData });
+	},
+	rename: ({ id, name }) =>
+		request(stampPath(id), { method: 'PATCH', body: { name } }),
+	remove: (id) => request(stampPath(id), { method: 'DELETE' }),
+	// <img> : revalidée par le navigateur à chaque affichage (ETag).
+	imageUrl: (id) => `/api${stampPath(id)}/image`,
+	// Octets du PNG, pour le moteur PDF qui le pose sur la page.
+	fetchImage: async (id) => {
+		const response = await fetch(`/api${stampPath(id)}/image`, {
+			credentials: 'same-origin',
+		});
+		if (!response.ok) {
+			throw new ApiError(`Erreur ${response.status}`, response.status);
+		}
+		return new Uint8Array(await response.arrayBuffer());
+	},
+};
+
 // Recherche dans le contenu : [{ documentId, page, snippet, pageCount }].
 export const searchAPI = {
 	search: (query) => request(`/v1/search?q=${encodeURIComponent(query)}`),

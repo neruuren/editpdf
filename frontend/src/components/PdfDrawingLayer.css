@@ -1,0 +1,36 @@
+/* Au-dessus des calques de texte et d'annotations, dans le même repère
+   (pageLayerTransform). Il reçoit tout le pointeur : pas de défilement ni
+   de zoom natif sous le doigt, le dessin les remplace (PdfDrawingLayer
+   fait défiler lui-même au doigt quand un stylet a servi). */
+.pdf-drawing-layer {
+	position: absolute;
+	inset-block-start: 0;
+	inset-inline-start: 0;
+	overflow: hidden;
+	transform-origin: 0 0;
+	touch-action: none;
+	user-select: none;
+	-webkit-user-select: none;
+	cursor: crosshair;
+}
+
+.pdf-drawing-layer[data-tool='eraser'] {
+	cursor: none;
+}
+
+.pdf-drawing-layer__vertex {
+	fill: #ffffff;
+	stroke: #2f6fdb;
+}
+
+.pdf-drawing-layer__eraser {
+	fill: rgb(255 255 255 / 0.4);
+	stroke: #5f6368;
+}
+
+@media (forced-colors: active) {
+	.pdf-drawing-layer__vertex,
+	.pdf-drawing-layer__eraser {
+		stroke: Highlight;
+	}
+}

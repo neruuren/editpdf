@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useBlocker } from 'react-router-dom';
 import AnnotationToolbar from './AnnotationToolbar';
+import StampDialog from './StampDialog';
 import ConfirmDialog from './ConfirmDialog';
 import DocumentDetails from './DocumentDetails';
 import NotePopover from './NotePopover';
@@ -20,6 +21,7 @@ import {
 } from '../hooks/useAnnotationEditor';
 import { useAnnotationList } from '../hooks/useAnnotationList';
 import { useAnnotationTools } from '../hooks/useAnnotationTools';
+import { useStamps } from '../hooks/useStamps';
 import { useSession } from '../hooks/useAuth';
 import {
 	useBookmarks,
@@ -97,6 +99,18 @@ function PdfViewer({ document }) {
 	});
 	const isEditLocked = editor.isLocked || Boolean(pdfState.isReloading);
 	const tools = useAnnotationTools(editor, { isLocked: isEditLocked });
+	const isStampTool = tools.isAnnotating && tools.tool === 'stamp';
+	const stamps = useStamps({ isEnabled: isStampTool });
+	const stampList = stamps.data ?? [];
+	const stampImage = tools.stampChoice.startsWith('image:')
+		? (stampList.find((stamp) => `image:${stamp.id}` === tools.stampChoice) ??
+			null)
+		: null;
+	let stampLabel = tools.stampChoice.slice('text:'.length);
+	if (tools.stampChoice === 'custom') stampLabel = tools.customStampText;
+	else if (tools.stampChoice.startsWith('image:')) {
+		stampLabel = stampImage?.name ?? 'Image';
+	}
 	const holdRevision = editor.isDirty ? pdfState.revision : null;
 	if (holdRevision !== heldRevision) setHeldRevision(holdRevision);
 	const saveReading = useReadingPosition(document.id);
@@ -125,6 +139,10 @@ function PdfViewer({ document }) {
 	const printRef = useRef(null);
 	const conflictRef = useRef(null);
 	const leaveRef = useRef(null);
+	const stampDialogRef = useRef(null);
+	const flattenRef = useRef(null);
+	// Message passager de la visionneuse (rien à aplatir…).
+	const [notice, setNotice] = useState(null);
 	const hasSavedRef = useRef(false);
 	const [shownPdf, setShownPdf] = useState(pdf);
 	// Autre PDF (révision suivante) : sélection et bulles oubliées.
@@ -379,8 +397,8 @@ function PdfViewer({ document }) {
 			if (isTypingTarget(event.target)) return;
 			if (withModifier && (key === 'z' || key === 'y')) {
 				event.preventDefault();
-				if (key === 'y' || event.shiftKey) editor.redo();
-				else editor.undo();
+				if (key === 'y' || event.shiftKey) tools.redo();
+				else tools.undo();
 				return;
 			}
 			if (
@@ -445,12 +463,21 @@ function PdfViewer({ document }) {
 		isAnnotating: tools.isAnnotating,
 		isLocked: isEditLocked,
 		tool: tools.tool,
+		shapeType: tools.shapeType,
+		drawStyle: tools.drawStyle,
+		shapeStyle: tools.shapeStyle,
+		hasPen: tools.hasPen,
 		selected: tools.selected,
 		textEditor: tools.textEditor,
 		onSelect: tools.select,
 		onSelectedChange: tools.handleSelectedChange,
 		onChange: editor.update,
-		onPlace: tools.place,
+		onPlace: (index, tool, point) =>
+			tools.place(index, tool, point, stampImage),
+		onPen: tools.notePen,
+		onStroke: tools.drawStroke,
+		onErase: tools.erase,
+		onShape: tools.drawShape,
 		onOpenNote: tools.openNote,
 		onEditText: tools.editText,
 		onCommitText: tools.commitText,
@@ -482,6 +509,13 @@ function PdfViewer({ document }) {
 		const ranges = textSelection?.ranges ?? [];
 		clearTextSelection();
 		tools.markup(type, ranges);
+	}
+
+	// Aplatir : la barre d'annotation s'ouvre, pour enregistrer (ou annuler).
+	async function handleFlattenConfirm() {
+		tools.setIsAnnotating(true);
+		const result = await editor.flatten();
+		if (result?.count === 0) setNotice('Aucune annotation à aplatir.');
 	}
 
 	function handleSelectionUnmark() {
@@ -565,6 +599,14 @@ function PdfViewer({ document }) {
 				onToggleAnnotate={tools.toggleAnnotating}
 				onPresent={() => setIsPresenting(true)}
 				onPrint={openPrint}
+				onFlatten={
+					isEditLocked
+						? undefined
+						: () => {
+								setNotice(null);
+								flattenRef.current?.showModal();
+							}
+				}
 			/>
 			{pdf && isSearchOpen && (
 				<ViewerSearchBar
@@ -583,10 +625,21 @@ function PdfViewer({ document }) {
 					onToolChange={tools.changeTool}
 					markupStyle={tools.markupStyle}
 					onMarkupStyleChange={tools.setMarkupStyle}
+					shapeType={tools.shapeType}
+					onShapeTypeChange={tools.setShapeType}
 					color={tools.color}
 					onColorChange={tools.changeColor}
 					fontSize={tools.fontSize}
 					onFontSizeChange={tools.changeFontSize}
+					lineWidth={tools.lineWidth}
+					onLineWidthChange={tools.changeLineWidth}
+					opacity={tools.opacity}
+					onOpacityChange={tools.changeOpacity}
+					fill={tools.fill}
+					onFillChange={tools.changeFill}
+					stampLabel={stampLabel}
+					isImageStamp={tools.stampChoice.startsWith('image:')}
+					onChooseStamp={() => stampDialogRef.current?.showModal()}
 					selected={tools.selected?.annotation ?? null}
 					onComment={tools.commentSelected}
 					onEditText={() =>
@@ -595,14 +648,19 @@ function PdfViewer({ document }) {
 					onDelete={tools.removeSelected}
 					canUndo={editor.canUndo && !isEditLocked}
 					canRedo={editor.canRedo && !isEditLocked}
-					onUndo={editor.undo}
-					onRedo={editor.redo}
+					onUndo={tools.undo}
+					onRedo={tools.redo}
 					isDirty={editor.isDirty}
 					isSaving={save.isPending || Boolean(pdfState.isReloading)}
 					isLocked={isEditLocked}
 					onSave={() => saveAnnotations()}
 					onClose={tools.toggleAnnotating}
 				/>
+			)}
+			{notice && (
+				<p className="pdf-viewer__notice-bar" role="status">
+					{notice}
+				</p>
 			)}
 			{editor.error && (
 				<p className="pdf-viewer__error" role="alert">
@@ -690,6 +748,37 @@ function PdfViewer({ document }) {
 					onClose={tools.closeNote}
 				/>
 			)}
+			<StampDialog
+				ref={stampDialogRef}
+				choice={tools.stampChoice}
+				customText={tools.customStampText}
+				withDate={tools.stampWithDate}
+				stamps={stampList}
+				isLoading={stamps.isLoading}
+				onChoose={tools.chooseStamp}
+				onCustomTextChange={tools.setCustomStampText}
+				onWithDateChange={tools.setStampWithDate}
+			/>
+			<ConfirmDialog
+				ref={flattenRef}
+				title="Aplatir les annotations ?"
+				confirmLabel="Aplatir"
+				onConfirm={handleFlattenConfirm}
+			>
+				<p>
+					Toutes les annotations du document seront fondues dans les pages :
+					elles s’afficheront et s’imprimeront à l’identique partout, mais ne se
+					modifieront plus. Les liens et les champs de formulaire restent.
+				</p>
+				<p>
+					Ce n’est pas un caviardage : un rectangle noir aplati ne retire pas le
+					texte qu’il cache, qui reste aussi dans le fichier.
+				</p>
+				<p>
+					Vous pourrez encore annuler avant d’enregistrer, et l’historique garde
+					la version d’avant.
+				</p>
+			</ConfirmDialog>
 			<SaveConflictDialog
 				ref={conflictRef}
 				onForce={() => saveAnnotations({ force: true })}

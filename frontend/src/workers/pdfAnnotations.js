@@ -40,9 +40,33 @@ const EDITABLE_TYPES = new Set([
 	'Stamp',
 	'Caret',
 ]);
-// Seuls types qu'on déplace en T3a (un rectangle suffit à les placer) ;
-// le texte libre se redimensionne aussi.
-const MOVABLE_TYPES = new Set(['Text', 'FreeText']);
+// Les effets sur le texte (surlignage…) suivent le texte : ils ne se
+// déplacent pas. La note garde sa taille (une icône).
+const RESIZABLE_TYPES = new Set([
+	'FreeText',
+	'Square',
+	'Circle',
+	'Ink',
+	'Polygon',
+	'PolyLine',
+	'Stamp',
+]);
+// Contour réglable (épaisseur, opacité) ; fond pour les formes fermées.
+const STROKED_TYPES = new Set([
+	'Square',
+	'Circle',
+	'Line',
+	'Ink',
+	'Polygon',
+	'PolyLine',
+]);
+const FILLED_TYPES = new Set(['Square', 'Circle', 'Polygon']);
+const ARROW_ENDINGS = new Set([
+	'OpenArrow',
+	'ClosedArrow',
+	'ROpenArrow',
+	'RClosedArrow',
+]);
 
 // Bornes de lecture d'un PDF piégé, et d'écriture.
 const MAX_ANNOTATIONS_PER_PAGE = 500;
@@ -59,9 +83,31 @@ const EXCERPT_BUDGET = 20_000_000;
 // annoncé qui couvrirait toute la page.
 const MAX_NOTE_HIT_SIZE = 48;
 
+// Dessin à main levée et polygones, en lecture comme en écriture.
+const MAX_INK_STROKES = 500;
+const MAX_STROKE_POINTS = 5000;
+const MAX_INK_POINTS = 20_000;
+const MAX_VERTICES = 1000;
+// Points de dessins et de polygones décrits par page (liste, calque) ; au-
+// delà, les suivants n'ont plus de géométrie (ni déplaçables, ni gommables).
+const PAGE_POINTS_BUDGET = 100_000;
+// Gomme : au plus 200 points par passage, et 20 millions de comparaisons.
+const MAX_ERASER_POINTS = 200;
+const ERASER_BUDGET = 20_000_000;
+// Tampon texte : un libellé et une ligne (la date), courts.
+const MAX_STAMP_LINES = 2;
+const MAX_STAMP_LINE_LENGTH = 60;
+// Clé privée d'un tampon posé par l'app : ses lignes de texte (tableau de
+// chaînes) ou /Image. Les autres lecteurs l'ignorent ; l'app s'en sert pour
+// redessiner un tampon texte recoloré.
+const STAMP_KEY = 'EditpdfStamp';
+
 export const NOTE_SIZE = 24;
 export const MIN_FONT_SIZE = 8;
 export const MAX_FONT_SIZE = 72;
+export const MIN_LINE_WIDTH = 0.5;
+export const MAX_LINE_WIDTH = 24;
+export const MIN_OPACITY = 0.1;
 const MIN_BOX_SIZE = 4;
 
 // Drapeaux d'une annotation (norme PDF, § 12.5.3).
@@ -134,6 +180,49 @@ function _finite(...values) {
 function _fontSize(value) {
 	_finite(value);
 	return Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, value));
+}
+
+function _lineWidth(value) {
+	_finite(value);
+	return Math.min(MAX_LINE_WIDTH, Math.max(MIN_LINE_WIDTH, value));
+}
+
+function _opacity(value) {
+	_finite(value);
+	return Math.min(1, Math.max(MIN_OPACITY, value));
+}
+
+// Point [x, y] reçu de l'interface, ramené dans la page.
+function _clampPoint(point, width, height) {
+	if (!Array.isArray(point)) throw new Error('Position invalide');
+	const [x, y] = point;
+	_finite(x, y);
+	return [Math.min(Math.max(x, 0), width), Math.min(Math.max(y, 0), height)];
+}
+
+// Liste de points reçue de l'interface : de `min` à `max` points.
+function _points(value, { min, max }, width, height) {
+	if (!Array.isArray(value) || value.length < min || value.length > max) {
+		throw new Error('Tracé invalide');
+	}
+	return value.map((point) => _clampPoint(point, width, height));
+}
+
+// Traits d'un dessin reçus de l'interface.
+function _strokes(value, width, height) {
+	if (
+		!Array.isArray(value) ||
+		value.length === 0 ||
+		value.length > MAX_INK_STROKES
+	) {
+		throw new Error('Tracé invalide');
+	}
+	const strokes = value.map((stroke) =>
+		_points(stroke, { min: 1, max: MAX_STROKE_POINTS }, width, height),
+	);
+	if (strokes.flat().length > MAX_INK_POINTS)
+		throw new Error('Tracé trop long');
+	return strokes;
 }
 
 // Rectangle [x0, y0, x1, y1] ramené dans la page (`width` × `height`, en
@@ -245,8 +334,151 @@ function _fitRect(rect, { width, height }) {
 	return [fit(x0, width), fit(y0, height), fit(x1, width), fit(y1, height)];
 }
 
-// `context` : { origin, size (de la page), getPageText?, budget? }.
-function _describe(annotation, { origin, size, getPageText, budget }) {
+function _readWidth(annotation) {
+	try {
+		const width = annotation.getBorderWidth();
+		return Number.isFinite(width) && width >= 0
+			? Math.min(width, MAX_LINE_WIDTH * 4)
+			: 1;
+	} catch {
+		return 1;
+	}
+}
+
+function _readOpacity(annotation) {
+	const opacity = annotation.getOpacity();
+	// Lue en simple précision (0.8 → 0.800000011…) : arrondie au centième.
+	return Number.isFinite(opacity)
+		? Math.round(Math.min(1, Math.max(0, opacity)) * 100) / 100
+		: 1;
+}
+
+// Points lus dans le PDF (espace de MuPDF) → repère de l'app, ramenés dans
+// la page.
+function _readPoints(points, origin, size, max) {
+	return points
+		.slice(0, max)
+		.map(([x, y]) => _fitPoint([x - origin.x0, y - origin.y0], size));
+}
+
+function _fitPoint([x, y], { width, height }) {
+	const fit = (value, limit) =>
+		Number.isFinite(value) ? Math.min(Math.max(value, 0), limit) : 0;
+	return [fit(x, width), fit(y, height)];
+}
+
+// ⚠️ getInkList(), getVertices() et getQuadPoints() de MuPDF construisent
+// tout le tableau avant qu'on puisse le couper : un PDF piégé (une liste
+// d'un million de points partagée par 500 annotations) ferait exploser la
+// mémoire. Leur taille est donc lue d'abord dans l'objet PDF, sans rien
+// matérialiser ; null : hors des bornes, l'accesseur n'est pas appelé.
+function _inkSize(annotation) {
+	const list = annotation.getObject().get('InkList');
+	if (!list.isArray() || list.length > MAX_INK_STROKES) return null;
+	let total = 0;
+	for (let i = 0; i < list.length; i++) {
+		const stroke = list.get(i);
+		if (!stroke.isArray() || stroke.length > MAX_STROKE_POINTS * 2) {
+			return null;
+		}
+		total += stroke.length / 2;
+		if (total > MAX_INK_POINTS) return null;
+	}
+	return total;
+}
+
+function _verticesSize(annotation) {
+	const vertices = annotation.getObject().get('Vertices');
+	if (!vertices.isArray() || vertices.length > MAX_VERTICES * 2) return null;
+	return vertices.length / 2;
+}
+
+function _quadsSize(annotation) {
+	const quads = annotation.getObject().get('QuadPoints');
+	if (!quads.isArray() || quads.length > MAX_QUADS * 8) return null;
+	return quads.length / 8;
+}
+
+// Taille de la géométrie de l'annotation (points), null si démesurée.
+function _geometrySize(annotation, type) {
+	if (type === 'Ink') return _inkSize(annotation);
+	if (type === 'Polygon' || type === 'PolyLine') {
+		return _verticesSize(annotation);
+	}
+	return 0;
+}
+
+// Traits d'un dessin lus dans le PDF (taille déjà vérifiée par _inkSize).
+function _readInk(annotation, origin, size) {
+	return annotation
+		.getInkList()
+		.map((stroke) => _readPoints(stroke, origin, size, MAX_STROKE_POINTS));
+}
+
+// Lignes d'un tampon posé par l'app, ou 'image', ou null (venu d'ailleurs).
+function _stampKind(annotation) {
+	const value = annotation.getObject().get(STAMP_KEY);
+	if (value.isName() && value.asName() === 'Image') return { kind: 'image' };
+	if (!value.isArray()) return { kind: null };
+	const lines = [];
+	for (let i = 0; i < Math.min(value.length, MAX_STAMP_LINES); i++) {
+		const line = value.get(i);
+		if (line.isString()) {
+			lines.push(_text(line.asString(), MAX_STAMP_LINE_LENGTH));
+		}
+	}
+	return lines.length > 0 ? { kind: 'text', lines } : { kind: null };
+}
+
+// Géométrie propre à chaque type : traits d'un dessin, extrémités d'une
+// ligne, sommets d'un polygone, nature d'un tampon.
+// `points.remaining` : points encore permis sur la page. Une géométrie
+// démesurée ou au-delà n'est pas lue : l'annotation n'a que son rectangle,
+// ne se déplace pas et ne se gomme pas.
+function _describeGeometry(annotation, type, item, origin, size, points) {
+	const geometrySize = _geometrySize(annotation, type);
+	if (geometrySize === null || geometrySize > points.remaining) {
+		item.canMove = false;
+		item.canResize = false;
+		item.isComplex = true;
+		return;
+	}
+	points.remaining -= geometrySize;
+	if (type === 'Ink' && annotation.hasInkList()) {
+		item.strokes = _readInk(annotation, origin, size);
+	} else if (type === 'Line' && annotation.hasLine()) {
+		item.line = _readPoints(annotation.getLine(), origin, size, 2);
+		const { start, end } = annotation.getLineEndingStyles();
+		item.arrow = ARROW_ENDINGS.has(end) || ARROW_ENDINGS.has(start);
+	} else if (
+		(type === 'Polygon' || type === 'PolyLine') &&
+		annotation.hasVertices()
+	) {
+		item.vertices = _readPoints(
+			annotation.getVertices(),
+			origin,
+			size,
+			MAX_VERTICES,
+		);
+	} else if (type === 'Stamp') {
+		const { kind, lines } = _stampKind(annotation);
+		item.stamp = kind;
+		if (lines) item.stampLines = lines;
+	}
+}
+
+// `context` : { origin, size (de la page), getPageText?, budget?, points?
+// (points de géométrie encore permis sur la page) }.
+function _describe(
+	annotation,
+	{
+		origin,
+		size,
+		getPageText,
+		budget,
+		points = { remaining: PAGE_POINTS_BUDGET },
+	},
+) {
 	const type = annotation.getType();
 	const flags = annotation.getFlags();
 	// Lecture seule, verrouillée : l'auteur du PDF ne voulait pas qu'on y touche.
@@ -270,17 +502,26 @@ function _describe(annotation, { origin, size, getPageText, budget }) {
 			: '',
 		modifiedAt: _date(annotation.getModificationDate()),
 		isLocked,
-		canMove: !isLocked && MOVABLE_TYPES.has(type),
-		canResize: !isLocked && type === 'FreeText',
+		canMove: !isLocked && !MARKUP_TYPES.has(type),
+		canResize: !isLocked && RESIZABLE_TYPES.has(type),
 	};
+	if (STROKED_TYPES.has(type)) {
+		item.width = _readWidth(annotation);
+		item.opacity = _readOpacity(annotation);
+	}
+	if (FILLED_TYPES.has(type)) {
+		const fill = annotation.getInteriorColor();
+		item.fill = fill.length > 0 ? _toHex(fill) : null;
+	}
+	_describeGeometry(annotation, type, item, origin, size, points);
 	if (type === 'FreeText') {
 		const appearance = _appearance(annotation);
 		item.color = _toHex(appearance.color);
 		item.fontSize = appearance.size;
-	} else {
+	} else if (item.stamp !== 'image') {
 		item.color = _toHex(annotation.getColor());
 	}
-	if (annotation.hasQuadPoints()) {
+	if (annotation.hasQuadPoints() && _quadsSize(annotation) !== null) {
 		item.rects = annotation
 			.getQuadPoints()
 			.slice(0, MAX_QUADS)
@@ -323,6 +564,7 @@ export function listAnnotations(document, index, getPageText = null) {
 			size: _pageSize(page),
 			getPageText: getPageText ? lazyText : null,
 			budget: { remaining: EXCERPT_BUDGET },
+			points: { remaining: PAGE_POINTS_BUDGET },
 		};
 		return _annotations(page).map((annotation) =>
 			_describe(annotation, context),
@@ -375,18 +617,193 @@ const CREATE_LABELS = {
 	Squiggly: 'Onduler',
 	Text: 'Note',
 	FreeText: 'Texte',
+	Ink: 'Dessiner',
+	Square: 'Rectangle',
+	Circle: 'Ellipse',
+	Line: 'Ligne',
+	Polygon: 'Polygone',
+	Stamp: 'Tampon',
 };
+
+// Encodage WinAnsi (celui de la police standard du tampon) des caractères
+// hors ASCII et Latin-1 ; les autres caractères deviennent « ? ».
+const WIN_ANSI_EXTRA = new Map([
+	['€', 0x80],
+	['‚', 0x82],
+	['ƒ', 0x83],
+	['„', 0x84],
+	['…', 0x85],
+	['†', 0x86],
+	['‡', 0x87],
+	['ˆ', 0x88],
+	['‰', 0x89],
+	['Š', 0x8a],
+	['‹', 0x8b],
+	['Œ', 0x8c],
+	['Ž', 0x8e],
+	['‘', 0x91],
+	['’', 0x92],
+	['“', 0x93],
+	['”', 0x94],
+	['•', 0x95],
+	['–', 0x96],
+	['—', 0x97],
+	['˜', 0x98],
+	['™', 0x99],
+	['š', 0x9a],
+	['›', 0x9b],
+	['œ', 0x9c],
+	['ž', 0x9e],
+	['Ÿ', 0x9f],
+]);
+
+function _winAnsi(char) {
+	const code = char.codePointAt(0);
+	if ((code >= 0x20 && code <= 0x7e) || (code >= 0xa0 && code <= 0xff)) {
+		return { code, char };
+	}
+	const extra = WIN_ANSI_EXTRA.get(char);
+	return extra ? { code: extra, char } : { code: 0x3f, char: '?' };
+}
+
+// Tampon texte : libellé en gras (20 pt), date en dessous (10 pt), dans un
+// cadre aux coins arrondis. En points.
+const STAMP_FONT = 'Helvetica-Bold';
+const STAMP_SIZES = [20, 10];
+const STAMP_PADDING = 8;
+const STAMP_BORDER = 2.5;
+
+function _stampLines(value) {
+	if (
+		!Array.isArray(value) ||
+		value.length === 0 ||
+		value.length > MAX_STAMP_LINES
+	) {
+		throw new Error('Tampon invalide');
+	}
+	const lines = value.map((line) => {
+		if (typeof line !== 'string') throw new Error('Tampon invalide');
+		return _text(line, MAX_STAMP_LINE_LENGTH).replace(/\s+/g, ' ').trim();
+	});
+	if (!lines[0]) throw new Error('Tampon vide');
+	return lines.filter(Boolean);
+}
+
+// Taille naturelle d'un tampon texte, et ses lignes mesurées.
+function _measureStamp(mupdf, lines) {
+	const font = new mupdf.Font(STAMP_FONT);
+	const measured = lines.map((line, i) => {
+		const size = STAMP_SIZES[i];
+		const chars = [...line].map(_winAnsi);
+		const width = chars.reduce(
+			(sum, { char }) =>
+				sum +
+				font.advanceGlyph(font.encodeCharacter(char.codePointAt(0))) * size,
+			0,
+		);
+		return { size, width, codes: chars.map(({ code }) => code) };
+	});
+	const width =
+		Math.max(...measured.map((line) => line.width)) + STAMP_PADDING * 2;
+	const height =
+		STAMP_PADDING * 2 +
+		measured.reduce((sum, line) => sum + line.size * 1.15, 0);
+	return { font, measured, width, height };
+}
+
+// Apparence d'un tampon texte : contenu PDF écrit à la main, police
+// standard non embarquée (quelques centaines d'octets par tampon).
+function _setStampAppearance(mupdf, document, annotation, lines, color) {
+	const { font, measured, width, height } = _measureStamp(mupdf, lines);
+	const r = 6;
+	const b = STAMP_BORDER / 2;
+	const [cr, cg, cb] = color.map((value) => value.toFixed(3));
+	const k = 0.5523 * r;
+	const path = [
+		`${b + r} ${b} m`,
+		`${width - b - r} ${b} l`,
+		`${width - b - r + k} ${b} ${width - b} ${b + r - k} ${width - b} ${b + r} c`,
+		`${width - b} ${height - b - r} l`,
+		`${width - b} ${height - b - r + k} ${width - b - r + k} ${height - b} ${width - b - r} ${height - b} c`,
+		`${b + r} ${height - b} l`,
+		`${b + r - k} ${height - b} ${b} ${height - b - r + k} ${b} ${height - b - r} c`,
+		`${b} ${b + r} l`,
+		`${b} ${b + r - k} ${b + r - k} ${b} ${b + r} ${b} c`,
+		'h S',
+	];
+	let top = STAMP_PADDING;
+	const text = measured.map((line) => {
+		top += line.size * 0.95;
+		const x = (width - line.width) / 2;
+		const y = height - top;
+		top += line.size * 0.2;
+		const hex = line.codes
+			.map((code) => code.toString(16).padStart(2, '0'))
+			.join('');
+		return `BT /F ${line.size} Tf ${x.toFixed(2)} ${y.toFixed(2)} Td <${hex}> Tj ET`;
+	});
+	const contents = [
+		'q',
+		`${cr} ${cg} ${cb} RG ${cr} ${cg} ${cb} rg ${STAMP_BORDER} w`,
+		...path,
+		...text,
+		'Q',
+	].join('\n');
+	const fontRef = document.addSimpleFont(font, 'Latin');
+	annotation.setAppearance(
+		null,
+		null,
+		mupdf.Matrix.identity,
+		[0, 0, width, height],
+		{ Font: { F: fontRef } },
+		contents,
+	);
+	return { width, height };
+}
+
+function _putStampLines(document, annotation, lines) {
+	const array = document.newArray();
+	for (const line of lines) array.push(document.newString(line));
+	annotation.getObject().put(STAMP_KEY, array);
+}
+
+// Style d'une forme ou d'un dessin : couleur, épaisseur, opacité, fond.
+function _applyStyle(annotation, type, spec) {
+	annotation.setColor(_fromHex(spec.color));
+	annotation.setBorderWidth(_lineWidth(spec.width ?? 2));
+	annotation.setOpacity(_opacity(spec.opacity ?? 1));
+	if (FILLED_TYPES.has(type)) {
+		annotation.setInteriorColor(spec.fill ? _fromHex(spec.fill) : []);
+	}
+}
 
 // 🔹 Crée une annotation sur la page `index`. Renvoie son id. `spec` :
 // - surlignage, souligné, barré, ondulé : { type, from, to, color }, les
 //   caractères `from` à `to` (inclus) du texte `pageText` de la page ;
 // - note : { type: 'Text', x, y, color, contents }, icône au point x, y ;
-// - texte libre : { type: 'FreeText', rect, color, contents, fontSize }.
-// `author` : nom d'auteur posé sur l'annotation.
-export function createAnnotation(document, index, spec, { author, pageText }) {
-	const label = CREATE_LABELS[spec?.type];
+// - texte libre : { type: 'FreeText', rect, color, contents, fontSize } ;
+// - dessin : { type: 'Ink', strokes ([[[x, y]…]…]), color, width, opacity } ;
+// - rectangle, ellipse : { type: 'Square' | 'Circle', rect, color, fill
+//   (couleur | null), width, opacity } ;
+// - ligne : { type: 'Line', line ([[x, y], [x, y]]), arrow, color, width,
+//   opacity } (arrow : une flèche au bout) ;
+// - polygone : { type: 'Polygon', vertices, color, fill, width, opacity } ;
+// - tampon texte : { type: 'Stamp', x, y (centre), lines (libellé, date
+//   facultative), color } ; tampon image : { type: 'Stamp', rect, image
+//   (PNG ou JPEG, Uint8Array) }.
+// `author` : nom d'auteur posé sur l'annotation. `mupdf` : le module, pour
+// un tampon.
+export function createAnnotation(
+	document,
+	index,
+	spec,
+	{ author, pageText, mupdf },
+) {
+	const label =
+		spec?.type === 'Line' && spec.arrow ? 'Flèche' : CREATE_LABELS[spec?.type];
 	if (!label) throw new Error('Type d’annotation invalide');
-	const color = _fromHex(spec.color);
+	const isImageStamp = spec.type === 'Stamp' && spec.image !== undefined;
+	const color = isImageStamp ? null : _fromHex(spec.color);
 	return _operation(document, index, label, (page) => {
 		const origin = _pageOrigin(page);
 		const { width, height } = _pageSize(page);
@@ -423,7 +840,7 @@ export function createAnnotation(document, index, spec, { author, pageText }) {
 			annotation.setIcon('Comment');
 			annotation.setColor(color);
 			annotation.setContents(_contents(spec.contents ?? ''));
-		} else {
+		} else if (spec.type === 'FreeText') {
 			const contents = _contents(spec.contents);
 			if (!contents.trim()) throw new Error('Texte vide');
 			const rect = _clampRect(spec.rect ?? [], width, height);
@@ -432,6 +849,83 @@ export function createAnnotation(document, index, spec, { author, pageText }) {
 			annotation.setDefaultAppearance('Helv', _fontSize(spec.fontSize), color);
 			annotation.setBorderWidth(0);
 			annotation.setContents(contents);
+		} else if (spec.type === 'Ink') {
+			const strokes = _strokes(spec.strokes, width, height);
+			annotation = page.createAnnotation('Ink');
+			annotation.setInkList(
+				strokes.map((stroke) =>
+					stroke.map(([x, y]) => [x + origin.x0, y + origin.y0]),
+				),
+			);
+			_applyStyle(annotation, 'Ink', spec);
+		} else if (spec.type === 'Square' || spec.type === 'Circle') {
+			const rect = _clampRect(spec.rect ?? [], width, height);
+			annotation = page.createAnnotation(spec.type);
+			annotation.setRect(_shift(rect, origin.x0, origin.y0));
+			_applyStyle(annotation, spec.type, spec);
+		} else if (spec.type === 'Line') {
+			const [a, b] = _points(spec.line, { min: 2, max: 2 }, width, height);
+			annotation = page.createAnnotation('Line');
+			annotation.setLine(
+				[a[0] + origin.x0, a[1] + origin.y0],
+				[b[0] + origin.x0, b[1] + origin.y0],
+			);
+			annotation.setLineEndingStyles('None', spec.arrow ? 'OpenArrow' : 'None');
+			_applyStyle(annotation, 'Line', spec);
+		} else if (spec.type === 'Polygon') {
+			const vertices = _points(
+				spec.vertices,
+				{ min: 3, max: MAX_VERTICES },
+				width,
+				height,
+			);
+			annotation = page.createAnnotation('Polygon');
+			annotation.setVertices(
+				vertices.map(([x, y]) => [x + origin.x0, y + origin.y0]),
+			);
+			_applyStyle(annotation, 'Polygon', spec);
+		} else if (isImageStamp) {
+			if (!(spec.image instanceof Uint8Array)) {
+				throw new Error('Image invalide');
+			}
+			const rect = _clampRect(spec.rect ?? [], width, height);
+			const image = new mupdf.Image(spec.image);
+			try {
+				annotation = page.createAnnotation('Stamp');
+				annotation.setRect(_shift(rect, origin.x0, origin.y0));
+				// Pas « Draft », le nom par défaut, qu'un lecteur qui
+				// redessinerait le tampon afficherait.
+				annotation.setIcon('Image');
+				annotation.setStampImage(image);
+			} finally {
+				image.destroy();
+			}
+			annotation.getObject().put(STAMP_KEY, document.newName('Image'));
+		} else {
+			_finite(spec.x, spec.y);
+			const lines = _stampLines(spec.lines);
+			annotation = page.createAnnotation('Stamp');
+			// Le nom du tampon : un lecteur qui redessinerait l'apparence
+			// afficherait au moins le libellé.
+			annotation.setIcon(lines[0]);
+			annotation.setColor(color);
+			_putStampLines(document, annotation, lines);
+			annotation.update();
+			const size = _setStampAppearance(
+				mupdf,
+				document,
+				annotation,
+				lines,
+				color,
+			);
+			const w = Math.min(size.width, width);
+			const h = Math.min(size.height, height);
+			const rect = _clampRect(
+				[spec.x - w / 2, spec.y - h / 2, spec.x + w / 2, spec.y + h / 2],
+				width,
+				height,
+			);
+			annotation.setRect(_shift(rect, origin.x0, origin.y0));
 		}
 		_stamp(annotation, author);
 		annotation.update();
@@ -439,10 +933,82 @@ export function createAnnotation(document, index, spec, { author, pageText }) {
 	});
 }
 
+// Rectangle englobant des points `points` ([[x, y]…]).
+function _pointsBounds(points) {
+	const xs = points.map(([x]) => x);
+	const ys = points.map(([, y]) => y);
+	return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+}
+
+// Transformation qui amène les points d'une annotation (dans l'espace de
+// MuPDF) de son rectangle affiché `from` à `to` (repère de l'app). Le
+// rectangle affiché déborde des points (épaisseur, pointe d'une flèche) :
+// ce débord est gardé tel quel, seuls les points s'étirent.
+function _pointsTransform(points, from, to, origin) {
+	const [gx0, gy0, gx1, gy1] = _pointsBounds(points).map(
+		(value, i) => value - (i % 2 === 0 ? origin.x0 : origin.y0),
+	);
+	const tx0 = to[0] + (gx0 - from[0]);
+	const ty0 = to[1] + (gy0 - from[1]);
+	const tx1 = Math.max(to[2] - (from[2] - gx1), tx0);
+	const ty1 = Math.max(to[3] - (from[3] - gy1), ty0);
+	const sx = gx1 > gx0 ? (tx1 - tx0) / (gx1 - gx0) : 1;
+	const sy = gy1 > gy0 ? (ty1 - ty0) / (gy1 - gy0) : 1;
+	return ([x, y]) => [
+		tx0 + (x - origin.x0 - gx0) * sx + origin.x0,
+		ty0 + (y - origin.y0 - gy0) * sy + origin.y0,
+	];
+}
+
+// Déplace ou redimensionne `annotation` (décrite par `item`) pour que son
+// rectangle affiché devienne `rect` (repère de l'app, déjà dans la page).
+function _moveTo(annotation, item, rect, origin) {
+	if (item.type === 'Ink') {
+		const strokes = annotation.getInkList();
+		const map = _pointsTransform(strokes.flat(), item.rect, rect, origin);
+		annotation.setInkList(strokes.map((stroke) => stroke.map(map)));
+	} else if (item.type === 'Line') {
+		const [a, b] = annotation.getLine();
+		const map = _pointsTransform([a, b], item.rect, rect, origin);
+		annotation.setLine(map(a), map(b));
+	} else if (item.type === 'Polygon' || item.type === 'PolyLine') {
+		const vertices = annotation.getVertices();
+		const map = _pointsTransform(vertices, item.rect, rect, origin);
+		annotation.setVertices(vertices.map(map));
+	} else {
+		// Le rectangle affiché (getBounds) peut déborder du Rect du PDF
+		// (épaisseur du contour) : ce débord est gardé.
+		const [rx0, ry0, rx1, ry1] = _shift(
+			annotation.getRect(),
+			-origin.x0,
+			-origin.y0,
+		);
+		const [fx0, fy0, fx1, fy1] = item.rect;
+		const x0 = rect[0] + (rx0 - fx0);
+		const y0 = rect[1] + (ry0 - fy0);
+		annotation.setRect(
+			_shift(
+				[
+					x0,
+					y0,
+					Math.max(rect[2] - (fx1 - rx1), x0 + 1),
+					Math.max(rect[3] - (fy1 - ry1), y0 + 1),
+				],
+				origin.x0,
+				origin.y0,
+			),
+		);
+	}
+}
+
 // 🔹 Modifie l'annotation `id` de la page `index`. `changes` : { color,
-// contents, rect (déplacement, ou taille d'un texte libre), fontSize }.
-export function updateAnnotation(document, index, id, changes) {
-	return _operation(document, index, 'Modifier', (page) => {
+// contents, rect (nouveau rectangle affiché : déplacement ou taille ; une
+// note garde sa taille), line (extrémités d'une ligne), fontSize (texte
+// libre), width, opacity, fill (couleur | null), addStroke (un trait de
+// plus à un dessin) }. `mupdf` : le module (tampon texte recoloré).
+export function updateAnnotation(document, index, id, changes, { mupdf } = {}) {
+	const label = 'addStroke' in changes ? 'Dessiner' : 'Modifier';
+	return _operation(document, index, label, (page) => {
 		const annotation = _find(page, id);
 		const item = _describe(annotation, {
 			origin: _pageOrigin(page),
@@ -456,9 +1022,53 @@ export function updateAnnotation(document, index, id, changes) {
 			if (item.type === 'FreeText') {
 				const { font, size } = _appearance(annotation);
 				annotation.setDefaultAppearance(font, size, color);
+			} else if (item.type === 'Stamp' && item.stamp !== 'text') {
+				throw new Error('Couleur non modifiable');
 			} else {
 				annotation.setColor(color);
 			}
+		}
+		if ('width' in changes || 'opacity' in changes) {
+			if (!STROKED_TYPES.has(item.type)) throw new Error('Pas de contour');
+			if ('width' in changes) {
+				annotation.setBorderWidth(_lineWidth(changes.width));
+			}
+			if ('opacity' in changes) {
+				annotation.setOpacity(_opacity(changes.opacity));
+			}
+		}
+		if ('fill' in changes) {
+			if (!FILLED_TYPES.has(item.type)) throw new Error('Pas de fond');
+			annotation.setInteriorColor(
+				changes.fill === null ? [] : _fromHex(changes.fill),
+			);
+		}
+		if ('addStroke' in changes) {
+			if (item.type !== 'Ink' || item.isComplex) {
+				throw new Error('Pas un dessin modifiable');
+			}
+			const [stroke] = _strokes([changes.addStroke], width, height);
+			const strokeCount = annotation.getObject().get('InkList').length;
+			if (
+				strokeCount >= MAX_INK_STROKES ||
+				_inkSize(annotation) + stroke.length > MAX_INK_POINTS
+			) {
+				throw new Error('Dessin trop long');
+			}
+			// Ajouté à la suite : réécrire toute la liste (setInkList) coûte,
+			// sous le journal, un temps qui croît avec le carré des points.
+			annotation.addInkListStroke();
+			for (const [x, y] of stroke) {
+				annotation.addInkListStrokeVertex([x + origin.x0, y + origin.y0]);
+			}
+		}
+		if ('line' in changes) {
+			if (item.type !== 'Line') throw new Error('Pas une ligne');
+			const [a, b] = _points(changes.line, { min: 2, max: 2 }, width, height);
+			annotation.setLine(
+				[a[0] + origin.x0, a[1] + origin.y0],
+				[b[0] + origin.x0, b[1] + origin.y0],
+			);
 		}
 		if ('fontSize' in changes) {
 			if (item.type !== 'FreeText') throw new Error('Pas de taille de texte');
@@ -477,18 +1087,35 @@ export function updateAnnotation(document, index, id, changes) {
 		if ('rect' in changes) {
 			if (!item.canMove) throw new Error('Annotation non déplaçable');
 			let rect = changes.rect;
-			if (item.type === 'Text') {
-				// Une note garde sa taille : seul son coin haut gauche compte.
-				const [x0, y0] = rect;
-				const [ox0, oy0, ox1, oy1] = annotation.getRect();
+			if (!Array.isArray(rect)) throw new Error('Position invalide');
+			const [x0, y0, x1, y1] = rect;
+			_finite(x0, y0, x1, y1);
+			const [ox0, oy0, ox1, oy1] = item.rect;
+			const isResize =
+				Math.abs(x1 - x0 - (ox1 - ox0)) > 0.01 ||
+				Math.abs(y1 - y0 - (oy1 - oy0)) > 0.01;
+			if (item.type === 'Text' || (isResize && !item.canResize)) {
+				// Garde sa taille : seul son coin haut gauche compte.
 				rect = [x0, y0, x0 + (ox1 - ox0), y0 + (oy1 - oy0)];
 			}
-			annotation.setRect(
-				_shift(_clampRect(rect, width, height), origin.x0, origin.y0),
-			);
+			_moveTo(annotation, item, _clampRect(rect, width, height), origin);
 		}
 		annotation.setModificationDate(new Date());
 		annotation.update();
+		// MuPDF peut avoir redessiné un tampon texte à sa façon (couleur) :
+		// il reprend son apparence, à son rectangle.
+		if ('color' in changes && item.stamp === 'text') {
+			const rect = annotation.getRect();
+			_setStampAppearance(
+				mupdf,
+				document,
+				annotation,
+				item.stampLines,
+				_fromHex(changes.color),
+			);
+			annotation.setRect(rect);
+			annotation.update();
+		}
 		return id;
 	});
 }
@@ -619,6 +1246,141 @@ export function deleteAnnotation(document, index, id) {
 		page.deleteAnnotation(annotation);
 		return id;
 	});
+}
+
+// Distance du point p au segment [a, b].
+function _segmentDistance([px, py], [ax, ay], [bx, by]) {
+	const dx = bx - ax;
+	const dy = by - ay;
+	const length = dx * dx + dy * dy;
+	const t =
+		length > 0
+			? Math.min(1, Math.max(0, ((px - ax) * dx + (py - ay) * dy) / length))
+			: 0;
+	return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+// Les segments [a, b] et [c, d] se croisent-ils ?
+function _segmentsCross(a, b, c, d) {
+	const side = (p, q, r) =>
+		Math.sign((q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]));
+	return side(a, b, c) * side(a, b, d) < 0 && side(c, d, a) * side(c, d, b) < 0;
+}
+
+// Le trait `stroke` passe-t-il à moins de `reach` du tracé de la gomme
+// (`path`, au moins un point) ? Les deux sont des suites de points.
+function _strokeTouched(stroke, path, reach, budget) {
+	const segments = (points) =>
+		points.length === 1
+			? [[points[0], points[0]]]
+			: points.slice(1).map((point, i) => [points[i], point]);
+	for (const [a, b] of segments(stroke)) {
+		for (const [c, d] of segments(path)) {
+			budget.remaining -= 1;
+			if (budget.remaining <= 0) throw new Error('Dessin trop complexe');
+			if (
+				_segmentsCross(a, b, c, d) ||
+				_segmentDistance(c, a, b) <= reach ||
+				_segmentDistance(d, a, b) <= reach ||
+				_segmentDistance(a, c, d) <= reach ||
+				_segmentDistance(b, c, d) <= reach
+			) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+// 🔹 Gomme : retire des dessins de la page `index` chaque trait que le
+// tracé `points` ([[x, y]…], repère de l'app) touche à `radius` points
+// près (plus la demi-épaisseur du trait). Un dessin qui n'a plus de trait
+// est supprimé ; un dessin verrouillé ne bouge pas. Renvoie le nombre de
+// traits retirés (0 : rien touché, l'historique ne change pas).
+export function eraseInk(document, index, { points, radius }) {
+	_finite(radius);
+	const reach = Math.min(Math.max(radius, 0), 50);
+	const result = _operation(document, index, 'Gommer', (page) => {
+		const origin = _pageOrigin(page);
+		const size = _pageSize(page);
+		const path = _points(
+			points,
+			{ min: 1, max: MAX_ERASER_POINTS },
+			size.width,
+			size.height,
+		).map(([x, y]) => [x + origin.x0, y + origin.y0]);
+		const [px0, py0, px1, py1] = _pointsBounds(path);
+		const budget = { remaining: ERASER_BUDGET };
+		let erased = 0;
+		for (const annotation of _annotations(page)) {
+			if (annotation.getType() !== 'Ink') continue;
+			if (annotation.getFlags() & (FLAG_READ_ONLY | FLAG_LOCKED)) continue;
+			const stroke = _readWidth(annotation) / 2 + reach;
+			const [x0, y0, x1, y1] = annotation.getBounds();
+			if (
+				x1 < px0 - stroke ||
+				x0 > px1 + stroke ||
+				y1 < py0 - stroke ||
+				y0 > py1 + stroke
+			) {
+				continue;
+			}
+			// Démesuré : jamais réécrit (une liste tronquée perdrait des traits).
+			if (_inkSize(annotation) === null) continue;
+			const strokes = annotation.getInkList();
+			const kept = strokes.filter(
+				(points) =>
+					points.length === 0 || !_strokeTouched(points, path, stroke, budget),
+			);
+			if (kept.length === strokes.length) continue;
+			erased += strokes.length - kept.length;
+			if (kept.every((points) => points.length === 0)) {
+				page.deleteAnnotation(annotation);
+				continue;
+			}
+			annotation.setInkList(kept);
+			annotation.setModificationDate(new Date());
+			annotation.update();
+		}
+		return erased > 0 ? erased : NO_CHANGE;
+	});
+	return result ?? 0;
+}
+
+// Types qu'aplatir fond dans le contenu (bake de MuPDF) ; les liens et
+// les champs de formulaire restent.
+const KEPT_BY_FLATTEN = new Set(['Link', 'Widget', 'Popup']);
+
+// 🔹 Aplatit toutes les annotations du document : leur apparence devient
+// du contenu des pages (MuPDF bake), elles ne sont plus modifiables, mais
+// tout lecteur les affiche et les imprime à l'identique. Les liens et les
+// champs de formulaire restent. Une seule opération du journal (« *: » :
+// toutes les pages à redessiner), donc annulable. Renvoie le nombre
+// d'annotations aplaties (0 : aucune, l'historique ne change pas).
+export function flattenAnnotations(document) {
+	let count = 0;
+	for (let index = 0; index < document.countPages(); index++) {
+		const page = document.loadPage(index);
+		try {
+			count += page
+				.getAnnotations()
+				.filter(
+					(annotation) => !KEPT_BY_FLATTEN.has(annotation.getType()),
+				).length;
+		} finally {
+			page.destroy();
+		}
+	}
+	if (count === 0) return 0;
+	document.beginOperation('*:Aplatir');
+	try {
+		document.bake(true, false);
+		document.endOperation();
+	} catch (error) {
+		document.abandonOperation();
+		throw error;
+	}
+	return count;
 }
 
 // 🔹 État du journal : { canUndo, canRedo, isDirty } ; isDirty = une

@@ -6,6 +6,8 @@ import {
 	createAnnotation,
 	deleteAnnotation,
 	enableHistory,
+	eraseInk,
+	flattenAnnotations,
 	removeMarkup,
 	historyState,
 	listAnnotations,
@@ -362,12 +364,21 @@ describe('pdfAnnotations', () => {
 				author: 'Acrobat',
 				contents: 'Cadre',
 				modifiedAt: null,
-				canMove: false,
+				canMove: true,
+				canResize: true,
 			});
 			// 842 - 200 = 642 : le haut du cadre, depuis le haut de la page.
 			expect(item.rect[1]).toBeCloseTo(642, 0);
 			updateAnnotation(document, 0, item.id, { color: '#e53935' });
 			expect(listAnnotations(document, 0)[0].color).toBe('#e53935');
+			const [x0, y0, x1, y1] = item.rect;
+			updateAnnotation(document, 0, item.id, {
+				rect: [x0 - 50, y0, x1 - 50, y1],
+			});
+			// MuPDF redessine le cadre (épaisseur comprise) : à un point près.
+			expect(
+				Math.abs(listAnnotations(document, 0)[0].rect[0] - (x0 - 50)),
+			).toBeLessThanOrEqual(1);
 			deleteAnnotation(document, 0, item.id);
 			expect(listAnnotations(document, 0)).toEqual([]);
 		});
@@ -606,6 +617,647 @@ describe('pdfAnnotations', () => {
 				),
 			).toBe(0);
 			expect(listAnnotations(document, 0)).toHaveLength(1);
+		});
+	});
+});
+
+// Options de création des formes, dessins et tampons (pas de texte lu).
+const SHAPE_OPTIONS = { author: AUTHOR, pageText: null, mupdf };
+
+function create(document, spec, index = 0) {
+	return createAnnotation(document, index, spec, SHAPE_OPTIONS);
+}
+
+function only(document, index = 0) {
+	const items = listAnnotations(document, index);
+	expect(items).toHaveLength(1);
+	return items[0];
+}
+
+function pngImage(width, height) {
+	const pixmap = new mupdf.Pixmap(
+		mupdf.ColorSpace.DeviceRGB,
+		[0, 0, width, height],
+		true,
+	);
+	try {
+		pixmap.clear(60);
+		return pixmap.asPNG().slice();
+	} finally {
+		pixmap.destroy();
+	}
+}
+
+// Contenu de l'apparence d'une annotation (vérifie le dessin du tampon).
+function appearanceOf(document, id, index = 0) {
+	const page = document.loadPage(index);
+	try {
+		const annotation = page
+			.getAnnotations()
+			.find((item) => item.getObject().asIndirect() === id);
+		return annotation.getObject().get('AP').get('N').readStream().asString();
+	} finally {
+		page.destroy();
+	}
+}
+
+describe('pdfAnnotations : dessins, formes, tampons (T3b)', () => {
+	it('dessine à main levée, ajoute un trait au même dessin, annule ce trait', () => {
+		withDocument(buildPdf(), (document) => {
+			const id = create(document, {
+				type: 'Ink',
+				strokes: [
+					[
+						[100, 100],
+						[150, 120],
+						[200, 100],
+					],
+				],
+				color: '#e53935',
+				width: 3,
+				opacity: 0.5,
+			});
+			expect(only(document)).toMatchObject({
+				id,
+				type: 'Ink',
+				color: '#e53935',
+				width: 3,
+				opacity: 0.5,
+				canMove: true,
+				canResize: true,
+				strokes: [
+					[
+						[100, 100],
+						[150, 120],
+						[200, 100],
+					],
+				],
+			});
+
+			updateAnnotation(document, 0, id, {
+				addStroke: [
+					[100, 200],
+					[200, 200],
+				],
+			});
+			expect(only(document).strokes).toHaveLength(2);
+			expect(document.getJournal().steps.at(-1)).toBe('0:Dessiner');
+
+			expect(stepHistory(document, -1)).toBe(0);
+			expect(only(document).strokes).toHaveLength(1);
+		});
+	});
+
+	it('refuse un dessin vide, démesuré, ou un trait ajouté à autre chose', () => {
+		withDocument(buildPdf(), (document) => {
+			const base = { type: 'Ink', color: '#000000' };
+			for (const strokes of [
+				[],
+				[[]],
+				[[[Number.NaN, 0]]],
+				[Array.from({ length: 5001 }, (_, i) => [i % 500, 10])],
+				'trait',
+			]) {
+				expect(() => create(document, { ...base, strokes })).toThrow();
+			}
+			const square = create(document, {
+				type: 'Square',
+				rect: [10, 10, 50, 50],
+				color: '#000000',
+			});
+			expect(() =>
+				updateAnnotation(document, 0, square, { addStroke: [[1, 1]] }),
+			).toThrow('Pas un dessin');
+		});
+	});
+
+	it('pose rectangle, ellipse, ligne, flèche et polygone, avec leur style', () => {
+		withDocument(buildPdf(), (document) => {
+			const square = create(document, {
+				type: 'Square',
+				rect: [100, 100, 200, 150],
+				color: '#1e88e5',
+				fill: '#ffeb3b',
+				width: 4,
+				opacity: 0.8,
+			});
+			const circle = create(document, {
+				type: 'Circle',
+				rect: [300, 100, 400, 200],
+				color: '#212121',
+				fill: null,
+			});
+			const arrow = create(document, {
+				type: 'Line',
+				line: [
+					[50, 300],
+					[250, 400],
+				],
+				arrow: true,
+				color: '#e53935',
+				width: 2,
+			});
+			const polygon = create(document, {
+				type: 'Polygon',
+				vertices: [
+					[100, 500],
+					[200, 450],
+					[250, 550],
+				],
+				color: '#66bb6a',
+				fill: '#66bb6a',
+				opacity: 0.4,
+			});
+			const byId = new Map(
+				listAnnotations(document, 0).map((item) => [item.id, item]),
+			);
+			// Le rectangle affiché déborde de la moitié du contour (et un peu).
+			expect(byId.get(square).rect).toEqual([97.5, 97.5, 202.5, 152.5]);
+			expect(byId.get(square)).toMatchObject({
+				type: 'Square',
+				color: '#1e88e5',
+				fill: '#ffeb3b',
+				width: 4,
+				opacity: 0.8,
+				canResize: true,
+			});
+			expect(byId.get(circle)).toMatchObject({
+				type: 'Circle',
+				fill: null,
+				width: 2,
+				opacity: 1,
+			});
+			expect(byId.get(arrow)).toMatchObject({
+				type: 'Line',
+				line: [
+					[50, 300],
+					[250, 400],
+				],
+				arrow: true,
+				canMove: true,
+				canResize: false,
+			});
+			expect(byId.get(polygon)).toMatchObject({
+				type: 'Polygon',
+				vertices: [
+					[100, 500],
+					[200, 450],
+					[250, 550],
+				],
+				fill: '#66bb6a',
+			});
+			expect(document.getJournal().steps).toEqual([
+				'0:Rectangle',
+				'0:Ellipse',
+				'0:Flèche',
+				'0:Polygone',
+			]);
+		});
+	});
+
+	it('refuse une forme mal décrite', () => {
+		withDocument(buildPdf(), (document) => {
+			for (const spec of [
+				{
+					type: 'Polygon',
+					vertices: [
+						[1, 1],
+						[2, 2],
+					],
+					color: '#000000',
+				},
+				{ type: 'Line', line: [[1, 1]], color: '#000000' },
+				{
+					type: 'Square',
+					rect: [1, 1, 50, 50],
+					color: '#000000',
+					fill: 'jaune',
+				},
+				{
+					type: 'Square',
+					rect: [1, 1, 50, 50],
+					color: '#000000',
+					width: Number.NaN,
+				},
+			]) {
+				expect(() => create(document, spec)).toThrow();
+			}
+			expect(listAnnotations(document, 0)).toEqual([]);
+		});
+	});
+
+	it('change épaisseur, opacité et fond, bornés', () => {
+		withDocument(buildPdf(), (document) => {
+			const id = create(document, {
+				type: 'Square',
+				rect: [100, 100, 200, 200],
+				color: '#000000',
+				fill: '#ffeb3b',
+			});
+			updateAnnotation(document, 0, id, {
+				width: 100,
+				opacity: 0,
+				fill: null,
+			});
+			expect(only(document)).toMatchObject({
+				width: 24,
+				opacity: 0.1,
+				fill: null,
+			});
+			const text = createAnnotation(
+				document,
+				0,
+				{
+					type: 'FreeText',
+					rect: [300, 300, 400, 340],
+					color: '#000000',
+					contents: 'Texte',
+					fontSize: 12,
+				},
+				SHAPE_OPTIONS,
+			);
+			expect(() => updateAnnotation(document, 0, text, { width: 2 })).toThrow(
+				'Pas de contour',
+			);
+			expect(() =>
+				updateAnnotation(document, 0, text, { fill: '#000000' }),
+			).toThrow('Pas de fond');
+		});
+	});
+
+	it('déplace et redimensionne un dessin, une ligne, un polygone, une forme', () => {
+		withDocument(buildPdf(), (document) => {
+			const ink = create(document, {
+				type: 'Ink',
+				strokes: [
+					[
+						[100, 100],
+						[200, 200],
+					],
+				],
+				color: '#000000',
+				width: 2,
+			});
+			const before = only(document);
+			// Déplacement de 50 points vers la droite.
+			const [x0, y0, x1, y1] = before.rect;
+			updateAnnotation(document, 0, ink, {
+				rect: [x0 + 50, y0, x1 + 50, y1],
+			});
+			const moved = only(document);
+			expect(moved.strokes[0][0][0]).toBeCloseTo(150, 1);
+			expect(moved.strokes[0][1][0]).toBeCloseTo(250, 1);
+			expect(moved.strokes[0][0][1]).toBeCloseTo(100, 1);
+
+			// Points deux fois plus écartés : le débord du rectangle autour
+			// d'eux (épaisseur) ne change pas.
+			const [mx0, my0, mx1, my1] = moved.rect;
+			updateAnnotation(document, 0, ink, {
+				rect: [mx0, my0, mx1 + 100, my1],
+			});
+			const resized = only(document);
+			const [[ax], [bx]] = resized.strokes[0];
+			expect(bx - ax).toBeCloseTo(200, 0);
+			deleteAnnotation(document, 0, ink);
+
+			const line = create(document, {
+				type: 'Line',
+				line: [
+					[100, 100],
+					[200, 100],
+				],
+				color: '#000000',
+			});
+			const lineItem = only(document);
+			const [lx0, ly0, lx1, ly1] = lineItem.rect;
+			updateAnnotation(document, 0, line, {
+				rect: [lx0, ly0 + 100, lx1, ly1 + 100],
+			});
+			expect(only(document).line[0][1]).toBeCloseTo(200, 1);
+			updateAnnotation(document, 0, line, {
+				line: [
+					[10, 10],
+					[900, 30],
+				],
+			});
+			// Ramenée dans la page (595 de large).
+			expect(only(document).line).toEqual([
+				[10, 10],
+				[595, 30],
+			]);
+			deleteAnnotation(document, 0, line);
+
+			const square = create(document, {
+				type: 'Square',
+				rect: [100, 100, 200, 200],
+				color: '#000000',
+			});
+			updateAnnotation(document, 0, square, { rect: [500, 800, 700, 900] });
+			// Ramené dans la page (595 × 842) avec sa nouvelle taille.
+			expect(only(document).rect).toEqual([395, 742, 595, 842]);
+		});
+	});
+
+	it('gomme les traits touchés, supprime un dessin vide, laisse le reste', () => {
+		withDocument(buildPdf(), (document) => {
+			const ink = create(document, {
+				type: 'Ink',
+				strokes: [
+					[
+						[100, 100],
+						[200, 100],
+					],
+					[
+						[100, 300],
+						[200, 300],
+					],
+				],
+				color: '#000000',
+				width: 2,
+			});
+			const steps = document.getJournal().steps.length;
+			// Loin de tout trait : rien ne change.
+			expect(eraseInk(document, 0, { points: [[150, 200]], radius: 5 })).toBe(
+				0,
+			);
+			expect(document.getJournal().steps).toHaveLength(steps);
+
+			// Un passage de gomme qui coupe le premier trait.
+			expect(
+				eraseInk(document, 0, {
+					points: [
+						[150, 80],
+						[150, 120],
+					],
+					radius: 2,
+				}),
+			).toBe(1);
+			expect(only(document)).toMatchObject({
+				id: ink,
+				strokes: [
+					[
+						[100, 300],
+						[200, 300],
+					],
+				],
+			});
+
+			expect(eraseInk(document, 0, { points: [[120, 302]], radius: 2 })).toBe(
+				1,
+			);
+			expect(listAnnotations(document, 0)).toEqual([]);
+			expect(stepHistory(document, -1)).toBe(0);
+			expect(only(document).strokes).toHaveLength(1);
+		});
+	});
+
+	it('pose un tampon texte centré, avec sa date, et le recolore', () => {
+		withDocument(buildPdf(), (document) => {
+			const id = create(document, {
+				type: 'Stamp',
+				x: 300,
+				y: 400,
+				lines: ['APPROUVÉ', ' 28/10/2026 '],
+				color: '#2e7d32',
+			});
+			const item = only(document);
+			expect(item).toMatchObject({
+				id,
+				type: 'Stamp',
+				stamp: 'text',
+				stampLines: ['APPROUVÉ', '28/10/2026'],
+				color: '#2e7d32',
+				canMove: true,
+				canResize: true,
+				author: AUTHOR,
+			});
+			const [x0, y0, x1, y1] = item.rect;
+			expect((x0 + x1) / 2).toBeCloseTo(300, 0);
+			expect((y0 + y1) / 2).toBeCloseTo(400, 0);
+			expect(x1 - x0).toBeGreaterThan(100);
+			// « É » en WinAnsi (0xC9), dans la police standard du tampon.
+			const appearance = appearanceOf(document, id);
+			expect(appearance).toContain('c9>');
+			expect(appearance).toContain('/F 20 Tf');
+			expect(appearance).toContain('/F 10 Tf');
+
+			updateAnnotation(document, 0, id, { color: '#c62828' }, { mupdf });
+			const recolored = only(document);
+			expect(recolored.color).toBe('#c62828');
+			expect(recolored.rect).toEqual(item.rect);
+			const redrawn = appearanceOf(document, id);
+			expect(redrawn).toContain('0.776 0.157 0.157 RG');
+			expect(redrawn).toContain('c9>');
+		});
+	});
+
+	it('écrit « ? » à la place d’un caractère hors de la police du tampon', () => {
+		withDocument(buildPdf(), (document) => {
+			const id = create(document, {
+				type: 'Stamp',
+				x: 100,
+				y: 100,
+				lines: ['Vu → ok'],
+				color: '#000000',
+			});
+			expect(appearanceOf(document, id)).toContain('3f');
+			expect(only(document).stampLines).toEqual(['Vu → ok']);
+		});
+	});
+
+	it('refuse un tampon texte vide ou trop long', () => {
+		withDocument(buildPdf(), (document) => {
+			for (const lines of [[], [' '], ['a', 'b', 'c'], 'APPROUVÉ', [42]]) {
+				expect(() =>
+					create(document, {
+						type: 'Stamp',
+						x: 10,
+						y: 10,
+						lines,
+						color: '#000000',
+					}),
+				).toThrow();
+			}
+		});
+	});
+
+	it('pose un tampon image, redimensionnable, sans couleur', () => {
+		withDocument(buildPdf(), (document) => {
+			const id = create(document, {
+				type: 'Stamp',
+				rect: [100, 100, 220, 160],
+				image: pngImage(120, 60),
+			});
+			expect(only(document)).toMatchObject({
+				id,
+				type: 'Stamp',
+				stamp: 'image',
+				color: null,
+				rect: [100, 100, 220, 160],
+				canResize: true,
+			});
+			// L'image elle-même, pas le texte d'un tampon standard.
+			expect(appearanceOf(document, id)).toMatch(/\/\w+ Do/);
+			updateAnnotation(document, 0, id, { rect: [100, 100, 340, 220] });
+			expect(only(document).rect).toEqual([100, 100, 340, 220]);
+			expect(() =>
+				updateAnnotation(document, 0, id, { color: '#000000' }),
+			).toThrow('Couleur non modifiable');
+			expect(() =>
+				create(document, {
+					type: 'Stamp',
+					rect: [10, 10, 50, 50],
+					image: new Uint8Array([1, 2, 3]),
+				}),
+			).toThrow();
+		});
+	});
+
+	it('garde les tampons et les dessins après enregistrement et réouverture', () => {
+		const data = withDocument(buildPdf(), (document) => {
+			create(document, {
+				type: 'Stamp',
+				x: 200,
+				y: 200,
+				lines: ['CONFIDENTIEL'],
+				color: '#c62828',
+			});
+			create(document, {
+				type: 'Ink',
+				strokes: [
+					[
+						[10, 10],
+						[20, 20],
+					],
+				],
+				color: '#000000',
+			});
+			return saveDocument(document);
+		});
+		withDocument(data, (document) => {
+			const items = listAnnotations(document, 0);
+			expect(items.map((item) => item.type)).toEqual(['Stamp', 'Ink']);
+			expect(items[0].stampLines).toEqual(['CONFIDENTIEL']);
+		});
+	});
+
+	it('aplatit toutes les annotations en une opération annulable', () => {
+		withDocument(buildPdf(), (document) => {
+			expect(flattenAnnotations(document)).toBe(0);
+			expect(document.getJournal().steps).toEqual([]);
+
+			create(document, {
+				type: 'Square',
+				rect: [10, 10, 50, 50],
+				color: '#000000',
+			});
+			create(
+				document,
+				{ type: 'Text', x: 10, y: 10, color: '#ffeb3b', contents: 'Note' },
+				1,
+			);
+			const page = document.loadPage(0);
+			page.createLink([100, 100, 200, 120], 'https://example.com');
+			page.destroy();
+
+			expect(flattenAnnotations(document)).toBe(2);
+			expect(document.getJournal().steps.at(-1)).toBe('*:Aplatir');
+			expect(listAnnotations(document, 0)).toEqual([]);
+			expect(listAnnotations(document, 1)).toEqual([]);
+			const flattened = document.loadPage(0);
+			expect(flattened.getLinks()).toHaveLength(1);
+			flattened.destroy();
+
+			// « * » : aucune page en particulier, tout est à redessiner.
+			expect(stepHistory(document, -1)).toBeNull();
+			expect(listAnnotations(document, 0)).toHaveLength(1);
+			expect(listAnnotations(document, 1)).toHaveLength(1);
+		});
+	});
+
+	it('ne lit pas un dessin piégé : liste démesurée partagée par plusieurs annotations', () => {
+		const source = new mupdf.PDFDocument();
+		let data;
+		try {
+			// 6 000 points (au-delà des 5 000 d'un trait), une seule fois dans
+			// le fichier, référencés par trois dessins.
+			const points = Array.from({ length: 12_000 }, (_, i) => 100 + (i % 300));
+			const inkList = source.addObject([points]);
+			const annots = [0, 1, 2].map(() =>
+				source.addObject({
+					Type: 'Annot',
+					Subtype: 'Ink',
+					Rect: [100, 100, 400, 400],
+					InkList: inkList,
+				}),
+			);
+			const page = source.addPage([0, 0, 595, 842], 0, null, '');
+			page.put('Annots', annots);
+			source.insertPage(-1, page);
+			data = source.saveToBuffer('').asUint8Array().slice();
+		} finally {
+			source.destroy();
+		}
+		withDocument(data, (document) => {
+			const items = listAnnotations(document, 0);
+			expect(items).toHaveLength(3);
+			for (const item of items) {
+				expect(item).toMatchObject({
+					type: 'Ink',
+					isComplex: true,
+					canMove: false,
+					canResize: false,
+				});
+				expect(item.strokes).toBeUndefined();
+			}
+			// La gomme n'y touche pas (elle ne réécrit pas une liste tronquée).
+			expect(eraseInk(document, 0, { points: [[150, 150]], radius: 50 })).toBe(
+				0,
+			);
+			const [x0, y0, x1, y1] = items[0].rect;
+			expect(() =>
+				updateAnnotation(document, 0, items[0].id, {
+					rect: [x0 + 10, y0, x1 + 10, y1],
+				}),
+			).toThrow('non déplaçable');
+			expect(() =>
+				updateAnnotation(document, 0, items[0].id, { addStroke: [[1, 1]] }),
+			).toThrow();
+			// Toujours supprimable.
+			deleteAnnotation(document, 0, items[0].id);
+			expect(listAnnotations(document, 0)).toHaveLength(2);
+		});
+	});
+
+	it('borne les points décrits par page', () => {
+		// 6 dessins de 20 000 points (4 traits de 5 000), écrits directement
+		// dans le PDF : les 5 premiers remplissent le budget de 100 000
+		// points, le dernier n'a plus que son rectangle.
+		const source = new mupdf.PDFDocument();
+		let data;
+		try {
+			const numbers = Array.from({ length: 10_000 }, (_, i) => 100 + (i % 300));
+			const annots = Array.from({ length: 6 }, () =>
+				source.addObject({
+					Type: 'Annot',
+					Subtype: 'Ink',
+					Rect: [100, 100, 400, 400],
+					InkList: [numbers, numbers, numbers, numbers],
+				}),
+			);
+			const page = source.addPage([0, 0, 595, 842], 0, null, '');
+			page.put('Annots', annots);
+			source.insertPage(-1, page);
+			data = source.saveToBuffer('').asUint8Array().slice();
+		} finally {
+			source.destroy();
+		}
+		withDocument(data, (document) => {
+			const items = listAnnotations(document, 0);
+			expect(
+				items.slice(0, 5).every((item) => item.strokes?.length === 4),
+			).toBe(true);
+			expect(items[5]).toMatchObject({ isComplex: true, canMove: false });
 		});
 	});
 });

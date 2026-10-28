@@ -1,7 +1,14 @@
 import {
 	annotationAt,
+	annotationLabel,
+	annotationSummary,
+	extendStroke,
 	floatingPosition,
+	imageStampRect,
+	segmentDistance,
 	selectionRanges,
+	shapeGeometry,
+	touchesInk,
 	unrotateDelta,
 	unrotatePoint,
 } from './annotations';
@@ -112,5 +119,123 @@ describe('selectionRanges', () => {
 		const [first] = layer();
 		expect(selectionRanges(select(first, 3, first, 3))).toEqual([]);
 		expect(selectionRanges(null)).toEqual([]);
+	});
+});
+
+describe('dessins et formes', () => {
+	const ink = {
+		id: 3,
+		type: 'Ink',
+		rect: [0, 0, 200, 200],
+		width: 2,
+		isLocked: false,
+		strokes: [
+			[
+				[0, 0],
+				[200, 200],
+			],
+		],
+	};
+	const arrow = {
+		id: 4,
+		type: 'Line',
+		arrow: true,
+		rect: [0, 200, 200, 400],
+		width: 2,
+		line: [
+			[0, 400],
+			[200, 200],
+		],
+	};
+
+	it('mesure la distance d’un point à un segment', () => {
+		expect(segmentDistance([5, 5], [0, 0], [10, 0])).toBe(5);
+		expect(segmentDistance([-3, 4], [0, 0], [10, 0])).toBe(5);
+		expect(segmentDistance([1, 1], [0, 0], [0, 0])).toBeCloseTo(Math.SQRT2);
+	});
+
+	it('touche un dessin ou une ligne sur son trait, pas dans le vide', () => {
+		expect(annotationAt([ink], { x: 100, y: 101 })).toBe(ink);
+		// Dans le rectangle, loin du trait.
+		expect(annotationAt([ink], { x: 180, y: 20 })).toBeNull();
+		expect(annotationAt([arrow], { x: 100, y: 300 })).toBe(arrow);
+		expect(annotationAt([arrow], { x: 20, y: 220 })).toBeNull();
+	});
+
+	it('touche un polygone vide sur son contour, plein partout', () => {
+		const polygon = {
+			id: 5,
+			type: 'Polygon',
+			rect: [0, 0, 100, 100],
+			fill: null,
+			vertices: [
+				[0, 0],
+				[100, 0],
+				[0, 100],
+			],
+		};
+		expect(annotationAt([polygon], { x: 20, y: 20 })).toBeNull();
+		// Le côté qui ferme le polygone compte aussi.
+		expect(annotationAt([polygon], { x: 0, y: 50 })).toBe(polygon);
+		expect(
+			annotationAt([{ ...polygon, fill: '#ffeb3b' }], { x: 20, y: 20 }),
+		).not.toBeNull();
+	});
+
+	it('dit si la gomme touche un trait, sauf verrouillé', () => {
+		expect(touchesInk([ink], [[100, 104]], 3)).toBe(true);
+		expect(touchesInk([ink], [[100, 110]], 3)).toBe(false);
+		expect(touchesInk([{ ...ink, isLocked: true }], [[100, 100]], 3)).toBe(
+			false,
+		);
+		expect(touchesInk([arrow], [[100, 300]], 3)).toBe(false);
+	});
+
+	it('n’ajoute à un trait que les points assez éloignés du précédent', () => {
+		const points = [[0, 0]];
+		extendStroke(points, [0.5, 0], 1);
+		extendStroke(points, [2, 0], 1);
+		expect(points).toEqual([
+			[0, 0],
+			[2, 0],
+		]);
+	});
+
+	it('trace rectangle, carré, ligne et ligne à 45°', () => {
+		expect(shapeGeometry('Square', [50, 50], [10, 80])).toEqual({
+			rect: [10, 50, 50, 80],
+		});
+		expect(shapeGeometry('Circle', [0, 0], [30, 10], true)).toEqual({
+			rect: [0, 0, 30, 30],
+		});
+		expect(shapeGeometry('Arrow', [0, 0], [10, 20])).toEqual({
+			line: [
+				[0, 0],
+				[10, 20],
+			],
+		});
+		const { line } = shapeGeometry('Line', [0, 0], [100, 10], true);
+		expect(line[1][0]).toBeCloseTo(Math.hypot(100, 10), 5);
+		expect(line[1][1]).toBeCloseTo(0, 5);
+	});
+
+	it('pose un tampon image dans 160 × 80 points, à ses proportions', () => {
+		expect(
+			imageStampRect({ x: 100, y: 100 }, { width: 600, height: 150 }),
+		).toEqual([20, 80, 180, 120]);
+		expect(
+			imageStampRect({ x: 100, y: 100 }, { width: 100, height: 400 }),
+		).toEqual([90, 60, 110, 140]);
+	});
+
+	it('nomme une flèche et résume un tampon', () => {
+		expect(annotationLabel(arrow)).toBe('Flèche');
+		expect(annotationLabel({ ...arrow, arrow: false })).toBe('Ligne');
+		expect(
+			annotationSummary({
+				contents: '',
+				stampLines: ['APPROUVÉ', '28/10/2026'],
+			}),
+		).toBe('APPROUVÉ — 28/10/2026');
 	});
 });

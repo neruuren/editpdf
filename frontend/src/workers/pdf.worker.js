@@ -13,6 +13,8 @@ import {
 	createAnnotation,
 	deleteAnnotation,
 	enableHistory,
+	eraseInk,
+	flattenAnnotations,
 	removeMarkup,
 	historyState,
 	listAnnotations,
@@ -84,6 +86,11 @@ function getDocument(documentId) {
 	return getEntry(documentId).document;
 }
 
+function forgetTexts(entry) {
+	entry.texts.clear();
+	entry.textChars = 0;
+}
+
 function getPageText(documentId, index) {
 	const entry = getEntry(documentId);
 	const cached = entry.texts.get(index);
@@ -139,18 +146,35 @@ const handlers = {
 		}
 		return { result };
 	},
-	createAnnotation({ documentId, index, spec, author }) {
+	async createAnnotation({ documentId, index, spec, author }) {
+		const mupdf = await loadMupdf();
 		const document = getDocument(documentId);
 		const id = createAnnotation(document, index, spec, {
 			author,
-			pageText: getPageText(documentId, index),
+			// Seuls les effets sur le texte en ont besoin.
+			pageText: 'from' in spec ? getPageText(documentId, index) : null,
+			mupdf,
 		});
 		return { result: { id, page: index, ...historyState(document) } };
 	},
-	updateAnnotation({ documentId, index, annotationId, changes }) {
+	async updateAnnotation({ documentId, index, annotationId, changes }) {
+		const mupdf = await loadMupdf();
 		const document = getDocument(documentId);
-		updateAnnotation(document, index, annotationId, changes);
+		updateAnnotation(document, index, annotationId, changes, { mupdf });
 		return { result: { page: index, ...historyState(document) } };
+	},
+	eraseInk({ documentId, index, points, radius }) {
+		const document = getDocument(documentId);
+		const count = eraseInk(document, index, { points, radius });
+		return { result: { count, page: index, ...historyState(document) } };
+	},
+	// Le texte des annotations aplaties (texte libre…) entre dans celui des
+	// pages : le texte déjà lu est oublié.
+	flatten({ documentId }) {
+		const entry = getEntry(documentId);
+		const count = flattenAnnotations(entry.document);
+		if (count > 0) forgetTexts(entry);
+		return { result: { count, page: null, ...historyState(entry.document) } };
 	},
 	deleteAnnotation({ documentId, index, annotationId }) {
 		const document = getDocument(documentId);
@@ -168,9 +192,11 @@ const handlers = {
 		return { result: { count, page: index, ...historyState(document) } };
 	},
 	history({ documentId, direction }) {
-		const document = getDocument(documentId);
-		const page = stepHistory(document, direction < 0 ? -1 : 1);
-		return { result: { page, ...historyState(document) } };
+		const entry = getEntry(documentId);
+		const page = stepHistory(entry.document, direction < 0 ? -1 : 1);
+		// Toutes les pages (aplatir annulé ou rétabli) : leur texte a changé.
+		if (page === null) forgetTexts(entry);
+		return { result: { page, ...historyState(entry.document) } };
 	},
 	save({ documentId }) {
 		const data = saveDocument(getDocument(documentId));

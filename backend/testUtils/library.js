@@ -19,7 +19,9 @@ async function loginAgent(app) {
 
 // Base et DATA_DIR vidés : chaque test part d'une bibliothèque vide.
 function resetLibrary() {
-	getDb().exec('DELETE FROM documents; DELETE FROM collections;');
+	getDb().exec(
+		'DELETE FROM documents; DELETE FROM collections; DELETE FROM stamps;',
+	);
 	fs.rmSync(env.dataDir, { recursive: true, force: true });
 }
 

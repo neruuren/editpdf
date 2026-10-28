@@ -17,13 +17,23 @@
 	position: relative;
 }
 
-/* Outil Note ou Texte : un clic pose l'annotation, le texte ne se
-   sélectionne plus. */
-.pdf-pages:is([data-tool='note'], [data-tool='text']) .pdf-page-view {
+/* Outil Note, Texte ou Tampon : un clic pose l'annotation ; outils qui
+   tracent (Dessin, Gomme, Forme) : leur calque reçoit le pointeur. Le
+   texte ne se sélectionne plus. */
+.pdf-pages:is([data-tool='note'], [data-tool='text'], [data-tool='stamp'])
+	.pdf-page-view {
 	cursor: crosshair;
 }
 
-.pdf-pages:is([data-tool='note'], [data-tool='text']) .pdf-text-layer {
+.pdf-pages:is(
+		[data-tool='note'],
+		[data-tool='text'],
+		[data-tool='stamp'],
+		[data-tool='draw'],
+		[data-tool='eraser'],
+		[data-tool='shape']
+	)
+	.pdf-text-layer {
 	pointer-events: none;
 	user-select: none;
 }

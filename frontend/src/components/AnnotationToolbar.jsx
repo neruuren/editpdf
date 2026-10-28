@@ -2,8 +2,14 @@ import { useId } from 'react';
 import ColorPalette from './ColorPalette';
 import {
 	FONT_SIZES,
+	LINE_WIDTHS,
 	MARKUP_STYLES,
-	annotationTypeLabel,
+	OPACITIES,
+	PALETTE,
+	SHAPE_STYLES,
+	annotationLabel,
+	hasFill,
+	hasStroke,
 } from '../utils/annotations';
 import './AnnotationToolbar.css';
 
@@ -39,7 +45,50 @@ const TOOLS = [
 			</>
 		),
 	},
+	{
+		value: 'draw',
+		label: 'Dessin',
+		icon: (
+			<>
+				<path d="M4 20l1-5L16 4l4 4L9 19z" />
+				<path d="M14 6l4 4" />
+			</>
+		),
+	},
+	{
+		value: 'eraser',
+		label: 'Gomme',
+		icon: (
+			<>
+				<path d="M8 20h12" />
+				<path d="M8 20l-4-4 10-10 6 6-8 8" />
+				<path d="M9 11l6 6" />
+			</>
+		),
+	},
+	{
+		value: 'shape',
+		label: 'Forme',
+		icon: (
+			<>
+				<rect x="3" y="10" width="11" height="11" rx="1" />
+				<circle cx="16" cy="8" r="5" />
+			</>
+		),
+	},
+	{
+		value: 'stamp',
+		label: 'Tampon',
+		icon: (
+			<>
+				<path d="M9 4h6v5l3 4H6l3-4z" />
+				<path d="M4 17h16v3H4z" />
+			</>
+		),
+	},
 ];
+
+const OPACITY_LABEL = (value) => `${Math.round(value * 100)} %`;
 
 function Icon({ children }) {
 	return (
@@ -54,20 +103,33 @@ function Icon({ children }) {
 }
 
 // 🔹 Barre du mode annotation, sous la barre d'outils (en bas de l'écran
-// sur un téléphone) : outil (sélection, surligner, note, texte), style du
-// surlignage, couleur et taille du texte, actions sur l'annotation
-// sélectionnée (`selected` : commentaire, modifier le texte, supprimer),
-// annuler / rétablir, enregistrer, terminer. La couleur et la taille
-// s'appliquent à l'annotation sélectionnée, sinon à l'outil.
+// sur un téléphone) : outil (sélection, surligner, note, texte, dessin,
+// gomme, forme, tampon), style du surlignage, forme, couleur, taille du
+// texte, épaisseur, opacité, fond, tampon choisi (`stampLabel`, bouton qui
+// ouvre le choix : `onChooseStamp`), actions sur l'annotation sélectionnée
+// (`selected` : commentaire, modifier le texte, supprimer), annuler /
+// rétablir, enregistrer, terminer. Les réglages s'appliquent à
+// l'annotation sélectionnée, sinon à l'outil.
 function AnnotationToolbar({
 	tool,
 	onToolChange,
 	markupStyle,
 	onMarkupStyleChange,
+	shapeType,
+	onShapeTypeChange,
 	color,
 	onColorChange,
 	fontSize,
 	onFontSizeChange,
+	lineWidth,
+	onLineWidthChange,
+	opacity,
+	onOpacityChange,
+	fill,
+	onFillChange,
+	stampLabel,
+	isImageStamp,
+	onChooseStamp,
 	selected,
 	onComment,
 	onEditText,
@@ -83,14 +145,29 @@ function AnnotationToolbar({
 	onClose,
 }) {
 	const styleId = useId();
+	const shapeId = useId();
 	const sizeId = useId();
+	const widthId = useId();
+	const opacityId = useId();
+	const fillId = useId();
 	const canEditSelected = selected && !selected.isLocked && !isLocked;
-	// Couleur et taille : celles de l'annotation sélectionnée, sinon celles
-	// de l'outil qui pose quelque chose.
-	const showsColor = selected ? canEditSelected : tool !== 'select';
+	// Réglages : ceux de l'annotation sélectionnée, sinon ceux de l'outil
+	// qui pose quelque chose.
+	const showsColor = selected
+		? canEditSelected && selected.color !== null
+		: !['select', 'eraser'].includes(tool) &&
+			!(tool === 'stamp' && isImageStamp);
 	const showsFontSize = selected
 		? canEditSelected && selected.type === 'FreeText'
 		: tool === 'text';
+	const showsStroke = selected
+		? canEditSelected && hasStroke(selected)
+		: tool === 'draw' || tool === 'shape';
+	const showsFill = selected
+		? canEditSelected && hasFill(selected)
+		: tool === 'shape' && ['Square', 'Circle', 'Polygon'].includes(shapeType);
+	const isCustomFill =
+		fill !== null && !PALETTE.some((item) => item.value === fill);
 
 	return (
 		<div className="annotation-toolbar" role="toolbar" aria-label="Annotations">
@@ -108,6 +185,8 @@ function AnnotationToolbar({
 							type="button"
 							className="button button--ghost annotation-toolbar__button"
 							aria-pressed={tool === value}
+							// Infobulle : le libellé est masqué sur un écran moyen.
+							title={label}
 							onClick={() => onToolChange(value)}
 							disabled={isLocked}
 						>
@@ -135,6 +214,45 @@ function AnnotationToolbar({
 								</option>
 							))}
 						</select>
+					</div>
+				)}
+
+				{tool === 'shape' && !selected && (
+					<div className="annotation-toolbar__group">
+						<label htmlFor={shapeId} className="visually-hidden">
+							Forme
+						</label>
+						<select
+							id={shapeId}
+							className="field__input annotation-toolbar__select"
+							value={shapeType}
+							onChange={(event) => onShapeTypeChange(event.target.value)}
+							disabled={isLocked}
+						>
+							{SHAPE_STYLES.map((style) => (
+								<option key={style.type} value={style.type}>
+									{style.label}
+								</option>
+							))}
+						</select>
+					</div>
+				)}
+
+				{tool === 'stamp' && !selected && (
+					<div className="annotation-toolbar__group">
+						<button
+							type="button"
+							className="button annotation-toolbar__stamp"
+							aria-haspopup="dialog"
+							onClick={onChooseStamp}
+							disabled={isLocked}
+						>
+							<span className="visually-hidden">Tampon : </span>
+							<span className="annotation-toolbar__stamp-label">
+								{stampLabel}
+							</span>
+							<span aria-hidden="true">▾</span>
+						</button>
 					</div>
 				)}
 
@@ -177,11 +295,93 @@ function AnnotationToolbar({
 					</div>
 				)}
 
+				{showsStroke && (
+					<div className="annotation-toolbar__group">
+						<label
+							htmlFor={widthId}
+							className="annotation-toolbar__field-label"
+						>
+							Épaisseur
+						</label>
+						<select
+							id={widthId}
+							className="field__input annotation-toolbar__select"
+							value={String(lineWidth)}
+							onChange={(event) =>
+								onLineWidthChange(Number(event.target.value))
+							}
+							disabled={isLocked}
+						>
+							{!LINE_WIDTHS.includes(lineWidth) && (
+								<option value={String(lineWidth)}>
+									{Math.round(lineWidth * 10) / 10} pt
+								</option>
+							)}
+							{LINE_WIDTHS.map((width) => (
+								<option key={width} value={String(width)}>
+									{width} pt
+								</option>
+							))}
+						</select>
+						<label
+							htmlFor={opacityId}
+							className="annotation-toolbar__field-label"
+						>
+							Opacité
+						</label>
+						<select
+							id={opacityId}
+							className="field__input annotation-toolbar__select"
+							value={String(opacity)}
+							onChange={(event) => onOpacityChange(Number(event.target.value))}
+							disabled={isLocked}
+						>
+							{!OPACITIES.includes(opacity) && (
+								<option value={String(opacity)}>
+									{OPACITY_LABEL(opacity)}
+								</option>
+							)}
+							{OPACITIES.map((value) => (
+								<option key={value} value={String(value)}>
+									{OPACITY_LABEL(value)}
+								</option>
+							))}
+						</select>
+					</div>
+				)}
+
+				{showsFill && (
+					<div className="annotation-toolbar__group">
+						<label htmlFor={fillId} className="annotation-toolbar__field-label">
+							Fond
+						</label>
+						<select
+							id={fillId}
+							className="field__input annotation-toolbar__select"
+							value={fill ?? 'none'}
+							onChange={(event) =>
+								onFillChange(
+									event.target.value === 'none' ? null : event.target.value,
+								)
+							}
+							disabled={isLocked}
+						>
+							<option value="none">Aucun</option>
+							{isCustomFill && <option value={fill}>Autre</option>}
+							{PALETTE.map((item) => (
+								<option key={item.value} value={item.value}>
+									{item.label}
+								</option>
+							))}
+						</select>
+					</div>
+				)}
+
 				{selected && (
 					<div
 						className="annotation-toolbar__group"
 						role="group"
-						aria-label={`${annotationTypeLabel(selected.type)} sélectionné`}
+						aria-label={`Annotation sélectionnée : ${annotationLabel(selected)}`}
 					>
 						{selected.type === 'FreeText' ? (
 							<button

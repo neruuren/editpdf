@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { annotationSummary, annotationTypeLabel } from '../utils/annotations';
+import { annotationLabel, annotationSummary } from '../utils/annotations';
 import './AnnotationList.css';
 
 const DATE_FORMAT = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short' });
@@ -57,7 +57,7 @@ function AnnotationList({ list, selected, onSelect }) {
 												}}
 												aria-hidden="true"
 											/>
-											{annotationTypeLabel(annotation.type)}
+											{annotationLabel(annotation)}
 										</span>
 										{summary && (
 											<span className="annotation-list__summary">

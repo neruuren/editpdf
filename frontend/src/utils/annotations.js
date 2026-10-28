@@ -1,6 +1,6 @@
-// 🔹 Calculs des annotations côté interface (T3a) : palette, libellés,
-// sélection de texte → caractères de la page, coordonnées sous le pointeur,
-// annotation touchée. Coordonnées en points depuis le coin haut gauche de
+// 🔹 Calculs des annotations côté interface (T3) : palette, libellés,
+// formes, tampons, sélection de texte → caractères de la page, coordonnées
+// sous le pointeur, annotation et traits touchés. Coordonnées en points depuis le coin haut gauche de
 // la page non tournée, comme le moteur (workers/pdfAnnotations.js).
 
 export const PALETTE = [
@@ -25,6 +25,66 @@ export const MARKUP_STYLES = [
 export const isMarkupType = (type) =>
 	MARKUP_STYLES.some((style) => style.type === type);
 
+// Formes : « Arrow » est une ligne (Line) avec une flèche au bout.
+export const SHAPE_STYLES = [
+	{ type: 'Square', label: 'Rectangle' },
+	{ type: 'Circle', label: 'Ellipse' },
+	{ type: 'Line', label: 'Ligne' },
+	{ type: 'Arrow', label: 'Flèche' },
+	{ type: 'Polygon', label: 'Polygone' },
+];
+
+export const isShapeType = (type) =>
+	SHAPE_STYLES.some((style) => style.type === type);
+
+// Épaisseurs (points) et opacités proposées pour le dessin et les formes.
+export const LINE_WIDTHS = [1, 2, 3, 4, 6, 8, 12];
+export const OPACITIES = [0.25, 0.5, 0.75, 1];
+
+// Types dont on règle le contour (épaisseur, opacité) et le fond.
+const STROKED_TYPES = new Set([
+	'Square',
+	'Circle',
+	'Line',
+	'Ink',
+	'Polygon',
+	'PolyLine',
+]);
+const FILLED_TYPES = new Set(['Square', 'Circle', 'Polygon']);
+export const hasStroke = (annotation) => STROKED_TYPES.has(annotation?.type);
+export const hasFill = (annotation) => FILLED_TYPES.has(annotation?.type);
+
+// Tampons texte prêts, avec leur couleur par défaut.
+export const TEXT_STAMPS = [
+	{ label: 'APPROUVÉ', color: '#2e7d32' },
+	{ label: 'REFUSÉ', color: '#c62828' },
+	{ label: 'CONFIDENTIEL', color: '#c62828' },
+	{ label: 'BROUILLON', color: '#1565c0' },
+	{ label: 'À SIGNER', color: '#ef6c00' },
+	{ label: 'PAYÉ', color: '#2e7d32' },
+	{ label: 'REÇU', color: '#1565c0' },
+	{ label: 'TRAITÉ', color: '#2e7d32' },
+	{ label: 'VU', color: '#1565c0' },
+	{ label: 'URGENT', color: '#c62828' },
+	{ label: 'ANNULÉ', color: '#c62828' },
+	{ label: 'COPIE', color: '#424242' },
+];
+
+export const MAX_STAMP_TEXT_LENGTH = 60;
+
+// Date écrite sous le libellé d'un tampon : « 28/10/2026 ».
+export function stampDate(date = new Date()) {
+	return date.toLocaleDateString('fr-FR');
+}
+
+// Taille d'un tampon image posé : dans 160 × 80 points, à ses proportions.
+export function imageStampRect({ x, y }, { width, height }) {
+	const ratio = Math.min(160 / width, 80 / height);
+	const w = width * ratio;
+	const h = height * ratio;
+	return [x - w / 2, y - h / 2, x + w / 2, y + h / 2];
+}
+
 const TYPE_LABELS = {
 	Highlight: 'Surlignage',
 	Underline: 'Soulignement',
@@ -46,10 +106,22 @@ export function annotationTypeLabel(type) {
 	return TYPE_LABELS[type] ?? type;
 }
 
+// Libellé d'une annotation donnée : une ligne fléchée est une flèche.
+export function annotationLabel(annotation) {
+	return annotation.type === 'Line' && annotation.arrow
+		? 'Flèche'
+		: annotationTypeLabel(annotation.type);
+}
+
 // Texte d'une annotation pour la liste et les lecteurs d'écran : son
-// commentaire, sinon le texte surligné.
+// commentaire, sinon le texte surligné, ou celui d'un tampon.
 export function annotationSummary(annotation) {
-	return annotation.contents.trim() || annotation.excerpt || '';
+	return (
+		annotation.contents.trim() ||
+		annotation.excerpt ||
+		annotation.stampLines?.join(' — ') ||
+		''
+	);
 }
 
 export const DEFAULT_FONT_SIZE = 14;
@@ -104,16 +176,132 @@ function _contains([x0, y0, x1, y1], { x, y }, margin) {
 	);
 }
 
+// Distance du point `p` au segment [a, b] (points [x, y]).
+export function segmentDistance([px, py], [ax, ay], [bx, by]) {
+	const dx = bx - ax;
+	const dy = by - ay;
+	const length = dx * dx + dy * dy;
+	const t =
+		length > 0
+			? Math.min(1, Math.max(0, ((px - ax) * dx + (py - ay) * dy) / length))
+			: 0;
+	return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+// Le tracé `points` passe-t-il à moins de `reach` du point `p` ?
+function _nearPath(points, p, reach, isClosed = false) {
+	if (points.length === 0) return false;
+	if (points.length === 1)
+		return segmentDistance(p, points[0], points[0]) <= reach;
+	const last = isClosed ? points.length : points.length - 1;
+	for (let i = 0; i < last; i++) {
+		if (
+			segmentDistance(p, points[i], points[(i + 1) % points.length]) <= reach
+		) {
+			return true;
+		}
+	}
+	return false;
+}
+
+// Le point est-il sur le tracé de l'annotation (dessin, ligne, polygone
+// vide) ? Pour les autres, son rectangle suffit.
+function _isOnShape(annotation, { x, y }, margin) {
+	const p = [x, y];
+	const reach = margin + (annotation.width ?? 1) / 2;
+	if (annotation.strokes) {
+		return annotation.strokes.some((stroke) => _nearPath(stroke, p, reach));
+	}
+	if (annotation.line) return _nearPath(annotation.line, p, reach + 2);
+	if (annotation.vertices && !annotation.fill) {
+		return _nearPath(
+			annotation.vertices,
+			p,
+			reach + 2,
+			annotation.type === 'Polygon',
+		);
+	}
+	return true;
+}
+
 // 🔹 Annotation sous le point `point` : la dernière posée d'abord (elle est
-// dessinée par-dessus). Un surlignage se touche sur ses lignes, pas dans
-// le rectangle qui les englobe. `margin` : tolérance, en points.
+// dessinée par-dessus). Un surlignage se touche sur ses lignes, un dessin
+// ou une ligne sur son trait, pas dans le rectangle qui les englobe.
+// `margin` : tolérance, en points.
 export function annotationAt(annotations, point, margin = 2) {
 	for (let i = annotations.length - 1; i >= 0; i--) {
 		const annotation = annotations[i];
 		const rects = annotation.rects ?? [annotation.rect];
-		if (rects.some((rect) => _contains(rect, point, margin))) return annotation;
+		if (
+			rects.some((rect) => _contains(rect, point, margin)) &&
+			_isOnShape(annotation, point, margin)
+		) {
+			return annotation;
+		}
 	}
 	return null;
+}
+
+// 🔹 La gomme (tracé `path`, points [x, y]) touche-t-elle un trait d'un
+// dessin modifiable de `annotations`, à `radius` points près ? Évite
+// d'envoyer au moteur un passage qui ne gomme rien.
+export function touchesInk(annotations, path, radius) {
+	return annotations.some(
+		(annotation) =>
+			annotation.strokes &&
+			!annotation.isLocked &&
+			annotation.strokes.some((stroke) =>
+				path.some((p) =>
+					_nearPath(stroke, p, radius + (annotation.width ?? 1) / 2),
+				),
+			),
+	);
+}
+
+// 🔹 Point ajouté à un tracé à main levée seulement s'il s'écarte d'au
+// moins `minDistance` du précédent : un trait garde sa forme avec bien
+// moins de points. Renvoie le tracé (le même tableau, allongé ou non).
+export function extendStroke(points, point, minDistance) {
+	const last = points.at(-1);
+	if (
+		!last ||
+		Math.hypot(point[0] - last[0], point[1] - last[1]) >= minDistance
+	) {
+		points.push(point);
+	}
+	return points;
+}
+
+// 🔹 Forme tracée d'un point `from` à un point `to` (points [x, y]) :
+// rectangle ou ellipse (`rect`), ligne ou flèche (`line`). `constrain`
+// (Maj) : carré, cercle, ou ligne par pas de 45°.
+export function shapeGeometry(type, from, to, constrain = false) {
+	let [x, y] = to;
+	const dx = x - from[0];
+	const dy = y - from[1];
+	if (type === 'Line' || type === 'Arrow') {
+		if (constrain) {
+			const angle =
+				Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+			const length = Math.hypot(dx, dy);
+			x = from[0] + Math.cos(angle) * length;
+			y = from[1] + Math.sin(angle) * length;
+		}
+		return { line: [from, [x, y]] };
+	}
+	if (constrain) {
+		const side = Math.max(Math.abs(dx), Math.abs(dy));
+		x = from[0] + Math.sign(dx || 1) * side;
+		y = from[1] + Math.sign(dy || 1) * side;
+	}
+	return {
+		rect: [
+			Math.min(from[0], x),
+			Math.min(from[1], y),
+			Math.max(from[0], x),
+			Math.max(from[1], y),
+		],
+	};
 }
 
 // Position (dans le texte de la page) d'un point de la sélection, s'il

@@ -31,6 +31,19 @@ const MAX_TEXT_PER_DOCUMENT = 5_000_000;
 const MAX_PAGES_INDEXED = 2000;
 const TEXT_TIME_BUDGET_MS = 15_000;
 
+// Tampons image : PNG ou JPEG reconnus à leurs premiers octets. Une image
+// annoncée démesurée est refusée avant d'être décodée ; une grande image est
+// réduite (un tampon n'a pas besoin de plus de 1 200 pixels de côté).
+const PNG_SIGNATURE = Buffer.from([
+	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+]);
+const JPEG_SIGNATURE = Buffer.from([0xff, 0xd8, 0xff]);
+const STAMP_MAX_SOURCE_SIDE = 10_000;
+// 25 Mpx : environ 100 Mo de pixels décodés, largement assez pour une
+// signature scannée (le tas WASM ne rend jamais sa mémoire).
+const STAMP_MAX_SOURCE_PIXELS = 25_000_000;
+const STAMP_MAX_SIDE = 1200;
+
 let mupdfPromise = null;
 
 // `mupdf` est un module ESM avec top-level await : require() échoue
@@ -183,4 +196,79 @@ async function inspectPdf(
 	}
 }
 
-module.exports = { loadMupdf, hasPdfSignature, inspectPdf };
+function _isStampImage(data) {
+	return (
+		data.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE) ||
+		data.subarray(0, JPEG_SIGNATURE.length).equals(JPEG_SIGNATURE)
+	);
+}
+
+// 🔹 Image d'un tampon (PNG ou JPEG, Buffer) → { png (Buffer), width,
+// height } : décodée par MuPDF, en RVB (transparence gardée), réduite à
+// STAMP_MAX_SIDE pixels de côté, réencodée en PNG. Le fichier envoyé n'est
+// jamais gardé tel quel (métadonnées, structures piégées). Image illisible
+// ou démesurée → 422.
+async function normalizeStampImage(data) {
+	if (!_isStampImage(data)) {
+		throw new ErrorResponse(
+			'Seules les images PNG et JPEG sont acceptées',
+			415,
+		);
+	}
+	const mupdf = await loadMupdf();
+	let image;
+	const pixmaps = [];
+	try {
+		image = new mupdf.Image(data);
+		const width = image.getWidth();
+		const height = image.getHeight();
+		if (
+			!(width > 0 && height > 0) ||
+			width > STAMP_MAX_SOURCE_SIDE ||
+			height > STAMP_MAX_SOURCE_SIDE ||
+			width * height > STAMP_MAX_SOURCE_PIXELS
+		) {
+			throw new ErrorResponse('Image trop grande', 422);
+		}
+		let pixmap = image.toPixmap();
+		pixmaps.push(pixmap);
+		if (pixmap.getColorSpace()?.getName() !== 'DeviceRGB') {
+			pixmap = pixmap.convertToColorSpace(mupdf.ColorSpace.DeviceRGB, true);
+			pixmaps.push(pixmap);
+		}
+		const scale = Math.min(1, STAMP_MAX_SIDE / Math.max(width, height));
+		const outWidth = Math.max(1, Math.round(width * scale));
+		const outHeight = Math.max(1, Math.round(height * scale));
+		if (scale < 1) {
+			pixmap = pixmap.warp(
+				[
+					[0, 0],
+					[width, 0],
+					[width, height],
+					[0, height],
+				],
+				outWidth,
+				outHeight,
+			);
+			pixmaps.push(pixmap);
+		}
+		return {
+			png: Buffer.from(pixmap.asPNG()),
+			width: outWidth,
+			height: outHeight,
+		};
+	} catch (error) {
+		if (error instanceof ErrorResponse) throw error;
+		throw new ErrorResponse('Image illisible ou endommagée', 422);
+	} finally {
+		for (const pixmap of pixmaps) pixmap.destroy();
+		image?.destroy();
+	}
+}
+
+module.exports = {
+	loadMupdf,
+	hasPdfSignature,
+	inspectPdf,
+	normalizeStampImage,
+};

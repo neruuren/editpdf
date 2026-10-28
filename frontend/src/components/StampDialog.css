@@ -1,0 +1,150 @@
+.stamp-dialog {
+	inline-size: min(100% - 2 * var(--space-4), 40rem);
+	max-block-size: min(100% - 2 * var(--space-4), 44rem);
+	padding: var(--space-5);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-lg);
+	color: var(--color-text);
+	background: var(--color-surface);
+	box-shadow: var(--shadow);
+}
+
+.stamp-dialog::backdrop {
+	background: rgb(0 0 0 / 0.45);
+}
+
+.stamp-dialog__title {
+	margin-block: 0 var(--space-4);
+	font-size: var(--font-size-lg);
+}
+
+.stamp-dialog__section {
+	display: grid;
+	gap: var(--space-3);
+	margin: 0 0 var(--space-4);
+	padding: 0;
+	border: 0;
+}
+
+.stamp-dialog__legend {
+	margin-block-end: var(--space-2);
+	padding: 0;
+	font-weight: 600;
+}
+
+.stamp-dialog__grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+	gap: var(--space-2);
+}
+
+/* Un tampon prêt ressemble à ce qu'il pose : texte gras dans un cadre
+   arrondi, à sa couleur (lisible en clair comme en sombre : fond de page). */
+.stamp-dialog__text-stamp {
+	display: grid;
+	place-items: center;
+	min-block-size: var(--tap-size);
+	padding: var(--space-1) var(--space-2);
+	border: 2px solid var(--stamp-color);
+	border-radius: var(--radius-md);
+	color: var(--stamp-color);
+	background: #ffffff;
+	font-weight: 700;
+	text-align: center;
+	cursor: pointer;
+}
+
+.stamp-dialog__text-stamp:has(:checked) {
+	outline: 3px solid var(--color-accent);
+	outline-offset: 2px;
+}
+
+.stamp-dialog__text-stamp:has(:focus-visible) {
+	outline: 3px solid var(--color-accent);
+	outline-offset: 2px;
+}
+
+.stamp-dialog__row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+.stamp-dialog__row .field__input {
+	flex: 1 1 12rem;
+	min-inline-size: 0;
+}
+
+.stamp-dialog__radio {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-block-size: var(--tap-size);
+	cursor: pointer;
+}
+
+.stamp-dialog__hint {
+	margin: 0;
+	color: var(--color-text-muted);
+}
+
+.stamp-dialog__images {
+	display: grid;
+	gap: var(--space-3);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.stamp-dialog__image {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+}
+
+.stamp-dialog__image-choice {
+	display: flex;
+	flex: 1 1 14rem;
+	align-items: center;
+	gap: var(--space-3);
+	min-inline-size: 0;
+	cursor: pointer;
+}
+
+/* Damier : une image transparente se voit sur n'importe quel fond. */
+.stamp-dialog__thumbnail {
+	inline-size: 6rem;
+	block-size: 3rem;
+	object-fit: contain;
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+	background: repeating-conic-gradient(#e8e8e8 0 25%, #ffffff 0 50%) 0 0 / 12px
+		12px;
+}
+
+.stamp-dialog__name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.stamp-dialog__danger {
+	color: var(--color-danger);
+}
+
+.stamp-dialog__error {
+	margin-block: var(--space-2);
+	color: var(--color-danger);
+}
+
+.stamp-dialog__error:empty {
+	display: none;
+}
+
+.stamp-dialog__actions {
+	display: flex;
+	justify-content: flex-end;
+}

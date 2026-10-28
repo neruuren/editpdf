@@ -18,8 +18,8 @@ const PRESET_ZOOMS = [
 // largeur, page entière, pourcentages), recherche, signet de la page
 // affichée, mode annotation (`isAnnotating`, la barre AnnotationToolbar),
 // panneaux (navigation, informations) et un menu « Plus d'actions »
-// (rotation d'affichage, présentation, impression, téléchargement ;
-// popover natif). `zoom` : 'width' | 'page' | facteur ;
+// (rotation d'affichage, présentation, impression, aplatir les
+// annotations si `onFlatten`, téléchargement ; popover natif). `zoom` : 'width' | 'page' | facteur ;
 // `scale` : échelle effective, pour afficher le pourcentage.
 function ViewerToolbar({
 	document,
@@ -45,6 +45,7 @@ function ViewerToolbar({
 	onToggleAnnotate,
 	onPresent,
 	onPrint,
+	onFlatten,
 }) {
 	const pageInputId = useId();
 	const zoomSelectId = useId();
@@ -272,6 +273,15 @@ function ViewerToolbar({
 							>
 								<span aria-hidden="true">⎙</span> Imprimer…
 							</button>
+							{onFlatten && (
+								<button
+									type="button"
+									className="button button--ghost viewer-toolbar__menu-item"
+									onClick={() => handleMenuAction(onFlatten)}
+								>
+									<span aria-hidden="true">▤</span> Aplatir les annotations…
+								</button>
+							)}
 						</>
 					)}
 					<a

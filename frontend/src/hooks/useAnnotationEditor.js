@@ -54,9 +54,10 @@ export function isSaveConflict(error) {
 // Renvoie { pageVersion(index), versions (Map page → version), allVersion,
 // canUndo, canRedo, isDirty, isLocked,
 // error, create(index, spec) → id | null, update(index, id, changes),
-// remove(index, id), removeMarkup(index, from, to), undo(), redo(), save, discard() } ; `save` est une
-// mutation : save.mutate({ force }) (force : sans contrôle de la révision
-// de départ, après un conflit).
+// remove(index, id), removeMarkup(index, from, to), erase(index, points,
+// radius) (gomme), flatten() (aplatir), undo(), redo(), save, discard() } ;
+// `save` est une mutation : save.mutate({ force }) (force : sans contrôle
+// de la révision de départ, après un conflit).
 export function useAnnotationEditor({ document, pdf, revision, author }) {
 	const queryClient = useQueryClient();
 	const [state, setState] = useState(() => _initial(pdf));
@@ -148,6 +149,19 @@ export function useAnnotationEditor({ document, pdf, revision, author }) {
 		[isLocked, run, pdf],
 	);
 
+	// Gomme : traits des dessins de la page `index` touchés par `points`.
+	const erase = useCallback(
+		(index, points, radius) =>
+			isLocked ? null : run(() => pdf.eraseInk(index, points, radius)),
+		[isLocked, run, pdf],
+	);
+
+	// Aplatir toutes les annotations du document → { count, … } | null.
+	const flatten = useCallback(
+		() => (isLocked ? null : run(() => pdf.flatten())),
+		[isLocked, run, pdf],
+	);
+
 	const undo = useCallback(
 		() => (isLocked ? null : run(() => pdf.undo())),
 		[isLocked, run, pdf],
@@ -190,6 +204,8 @@ export function useAnnotationEditor({ document, pdf, revision, author }) {
 		update,
 		remove,
 		removeMarkup,
+		erase,
+		flatten,
 		undo,
 		redo,
 		save,

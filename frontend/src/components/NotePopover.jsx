@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useFloatingPosition } from '../hooks/useFloatingPosition';
-import { annotationTypeLabel } from '../utils/annotations';
+import { annotationLabel } from '../utils/annotations';
 import './NotePopover.css';
 
 const DATE_FORMAT = new Intl.DateTimeFormat('fr-FR', {
@@ -15,7 +15,7 @@ const DATE_FORMAT = new Intl.DateTimeFormat('fr-FR', {
 // Popover natif : par-dessus tout, focus rendu à la fermeture.
 function NotePopover({ annotation, getAnchor, canEdit, onClose }) {
 	const ref = useRef(null);
-	const title = `${annotationTypeLabel(annotation.type)}${annotation.author ? ` de ${annotation.author}` : ''}`;
+	const title = `${annotationLabel(annotation)}${annotation.author ? ` de ${annotation.author}` : ''}`;
 	const [contents, setContents] = useState(annotation.contents);
 	// Lus à la fermeture (événement du popover, hors du rendu).
 	const contentsRef = useRef(contents);

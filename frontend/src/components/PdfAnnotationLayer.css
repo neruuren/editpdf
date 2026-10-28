@@ -41,6 +41,22 @@
 	pointer-events: none;
 }
 
+.pdf-annotation-layer__mover {
+	position: absolute;
+	cursor: move;
+	pointer-events: auto;
+	touch-action: none;
+}
+
+.pdf-annotation-layer__line {
+	position: absolute;
+	inset-block-start: 0;
+	inset-inline-start: 0;
+	overflow: visible;
+	pointer-events: none;
+	stroke: #2f6fdb;
+}
+
 .pdf-annotation-layer__handle {
 	position: absolute;
 	inline-size: 14px;
@@ -55,6 +71,10 @@
 	touch-action: none;
 }
 
+.pdf-annotation-layer__handle:is([data-mode='start'], [data-mode='end']) {
+	cursor: move;
+}
+
 .pdf-annotation-layer__handle::before {
 	content: '';
 	position: absolute;
@@ -64,6 +84,22 @@
 @media (forced-colors: active) {
 	.pdf-annotation-layer__selection {
 		outline-color: Highlight;
+	}
+
+	.pdf-annotation-layer__mover {
+		position: absolute;
+		cursor: move;
+		pointer-events: auto;
+		touch-action: none;
+	}
+
+	.pdf-annotation-layer__line {
+		position: absolute;
+		inset-block-start: 0;
+		inset-inline-start: 0;
+		overflow: visible;
+		pointer-events: none;
+		stroke: #2f6fdb;
 	}
 
 	.pdf-annotation-layer__handle {

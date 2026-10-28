@@ -62,7 +62,7 @@ Livrée en deux temps : **T2a** (lire : moteur, rendu, zoom, navigation, reprise
 
 ## T3 : annotations
 
-Livrée en deux temps : **T3a** (marquer le texte, notes et texte libre, enregistrer) puis **T3b** (dessin, formes, tampons, aplatir). Choix : [ADR 0010](adr/0010-annotations.md).
+Livrée en deux temps : **T3a** (marquer le texte, notes et texte libre, enregistrer) puis **T3b** (dessin, formes, tampons, aplatir). Choix : [ADR 0010](adr/0010-annotations.md). Les signatures mémorisées de T6 pourront s'appuyer sur les tampons image.
 
 ### T3a
 
@@ -77,11 +77,11 @@ Livrée en deux temps : **T3a** (marquer le texte, notes et texte libre, enregis
 
 ### T3b
 
-- [ ] Dessin à main levée (encre, Pointer Events, stylet), gomme (N)
-- [ ] Formes : rectangle, ellipse, ligne, flèche, polygone ; couleurs, épaisseur, opacité (N)
-- [ ] Tampons (« Approuvé », « Confidentiel »…, et tampons image) (N)
-- [ ] Déplacement et redimensionnement de tous les types (N)
-- [ ] Aplatir les annotations (les fondre dans le contenu) (N)
+- [x] Dessin à main levée (encre, Pointer Events, stylet avec rejet de la paume ; traits rapprochés regroupés en un dessin), gomme qui efface le trait touché (N)
+- [x] Formes : rectangle, ellipse, ligne, flèche, polygone ; couleur, fond, épaisseur, opacité, mémorisés sur l'appareil (N)
+- [x] Tampons texte (« APPROUVÉ », « CONFIDENTIEL »… ou texte libre, avec la date) et tampons image gardés sur le serveur (PNG / JPEG, tous appareils) (N/S)
+- [x] Déplacement de tous les types (sauf les effets sur le texte), redimensionnement (formes, dessins, tampons à leurs proportions, texte libre), extrémités d'une ligne (N)
+- [x] Aplatir les annotations (les fondre dans le contenu, liens et formulaires gardés), annulable avant l'enregistrement (N)
 
 ## T4 : édition du texte existant
 

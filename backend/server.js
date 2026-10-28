@@ -20,6 +20,7 @@ const healthRoutes = require('./routes/healthRoutes');
 const documentRoutes = require('./routes/documentRoutes');
 const collectionRoutes = require('./routes/collectionRoutes');
 const searchRoutes = require('./routes/searchRoutes');
+const stampRoutes = require('./routes/stampRoutes');
 
 const FRONTEND_DIST = path.join(__dirname, '../frontend/dist');
 
@@ -83,7 +84,8 @@ app.use('/api/auth', authRoutes);
 // Toute l'API métier est privée.
 app.use('/api/v1', protect);
 // Listes, extraits de recherche, historique : rien de l'API ne reste dans le
-// cache disque du navigateur. La miniature pose son propre Cache-Control.
+// cache disque du navigateur. La miniature et l'image d'un tampon posent
+// leur propre Cache-Control.
 app.use('/api/v1', (req, res, next) => {
 	res.set('Cache-Control', 'private, no-store');
 	next();
@@ -91,6 +93,7 @@ app.use('/api/v1', (req, res, next) => {
 app.use('/api/v1/documents', documentRoutes);
 app.use('/api/v1/collections', collectionRoutes);
 app.use('/api/v1/search', searchRoutes);
+app.use('/api/v1/stamps', stampRoutes);
 
 // 🔹 404 JSON pour les routes API inconnues
 app.use('/api', (req, res, next) => {

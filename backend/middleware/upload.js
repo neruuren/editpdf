@@ -73,24 +73,69 @@ const importUploader = _uploader(0);
 const revisionUploader = _uploader(2);
 
 // Convertit les erreurs multer en ErrorResponse (message clair + bon code).
-const _handle = (uploader) => (req, res, next) => {
-	uploader(req, res, (err) => {
-		if (err instanceof multer.MulterError) {
-			const [message, status] = MULTER_ERRORS[err.code] ?? [
-				'Envoi invalide',
-				400,
-			];
-			return next(new ErrorResponse(message, status));
-		}
-		// Erreur de busboy (« Malformed part header », « Unexpected end of
-		// form »…) : la requête est mal formée, ce n'est pas une panne. Les
-		// erreurs système (disque plein…) ont un `code` et restent des 500.
-		if (err && !(err instanceof ErrorResponse) && !err.code) {
-			return next(new ErrorResponse('Envoi invalide', 400));
-		}
-		next(err);
-	});
-};
+const _handle =
+	(uploader, errors = MULTER_ERRORS) =>
+	(req, res, next) => {
+		uploader(req, res, (err) => {
+			if (err instanceof multer.MulterError) {
+				const [message, status] = errors[err.code] ?? ['Envoi invalide', 400];
+				return next(new ErrorResponse(message, status));
+			}
+			// Erreur de busboy (« Malformed part header », « Unexpected end of
+			// form »…) : la requête est mal formée, ce n'est pas une panne. Les
+			// erreurs système (disque plein…) ont un `code` et restent des 500.
+			if (err && !(err instanceof ErrorResponse) && !err.code) {
+				return next(new ErrorResponse('Envoi invalide', 400));
+			}
+			next(err);
+		});
+	};
+
+// 🔹 Tampon image : petit fichier (STAMP_MAX_SIZE_MB), gardé en mémoire le
+// temps de le normaliser (pdfService.normalizeStampImage, qui vérifie aussi
+// la signature PNG ou JPEG). Un champ « name » facultatif l'accompagne.
+const STAMP_MAX_SIZE_MB = 5;
+const STAMP_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg']);
+const STAMP_MIME_TYPES = new Set([
+	'image/png',
+	'image/jpeg',
+	'application/octet-stream',
+	'',
+]);
+
+const stampUploader = multer({
+	storage: multer.memoryStorage(),
+	defParamCharset: 'utf8',
+	limits: {
+		fileSize: STAMP_MAX_SIZE_MB * 1024 * 1024,
+		files: 1,
+		fields: 1,
+		// Nom de 60 caractères, jusqu'à 4 octets chacun en UTF-8.
+		fieldSize: 240,
+		parts: 2,
+	},
+	fileFilter: (req, file, cb) => {
+		const isImage =
+			STAMP_EXTENSIONS.has(path.extname(file.originalname).toLowerCase()) &&
+			STAMP_MIME_TYPES.has(file.mimetype);
+		cb(
+			isImage
+				? null
+				: new ErrorResponse(
+						'Seules les images PNG et JPEG sont acceptées',
+						415,
+					),
+			isImage,
+		);
+	},
+}).single('file');
 
 exports.uploadPdf = _handle(importUploader);
 exports.uploadRevisionPdf = _handle(revisionUploader);
+exports.uploadStampImage = _handle(stampUploader, {
+	...MULTER_ERRORS,
+	LIMIT_FILE_SIZE: [
+		`Image trop volumineuse (max ${STAMP_MAX_SIZE_MB} Mo)`,
+		413,
+	],
+});
