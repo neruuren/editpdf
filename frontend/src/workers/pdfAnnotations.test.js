@@ -490,7 +490,9 @@ describe('pdfAnnotations', () => {
 		} finally {
 			document.destroy();
 		}
-	});
+		// Préparer la page piégée prend à lui seul plusieurs secondes en CI ;
+		// seul listAnnotations est borné (3 s, ci-dessus).
+	}, 30_000);
 
 	it('ramène dans la page le rectangle annoncé d’une annotation', () => {
 		const data = buildPdf({
