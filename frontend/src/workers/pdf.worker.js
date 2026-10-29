@@ -28,6 +28,15 @@ import {
 	listTextBlocks,
 	replaceText,
 } from './pdfTextEdit';
+import {
+	addImage,
+	deleteImage,
+	hasImageEdits,
+	listImages,
+	moveImage,
+	replaceImage,
+} from './pdfImageEdit';
+import { needsSanitize } from './pdfContent';
 
 // 🔹 Worker du moteur PDF : MuPDF (WASM, ~10 Mo) n'est chargé que dans ce
 // thread, à la première ouverture d'un document. Seul utils/pdfEngine.js
@@ -122,6 +131,18 @@ function getPageText(documentId, index) {
 		entry.textChars -= dropped.text.length;
 	}
 	return pageText;
+}
+
+// Modification d'une image de la page `index` : le contenu est réécrit par
+// le caviardage, son texte est relu.
+async function editImage(documentId, index, change) {
+	const mupdf = await loadMupdf();
+	const entry = getEntry(documentId);
+	const result = change(mupdf, entry.document) ?? {};
+	forgetPageText(entry, index);
+	return {
+		result: { ...result, page: index, ...historyState(entry.document) },
+	};
 }
 
 const handlers = {
@@ -236,6 +257,31 @@ const handlers = {
 			result: { ...result, page: index, ...historyState(entry.document) },
 		};
 	},
+	// Images du contenu d'une page (édition des images).
+	async images({ documentId, index }) {
+		const mupdf = await loadMupdf();
+		return { result: listImages(mupdf, getDocument(documentId), index) };
+	},
+	async deleteImage({ documentId, index, target }) {
+		return editImage(documentId, index, (mupdf, document) =>
+			deleteImage(mupdf, document, index, { target }),
+		);
+	},
+	async moveImage({ documentId, index, target, rect }) {
+		return editImage(documentId, index, (mupdf, document) =>
+			moveImage(mupdf, document, index, { target, rect }),
+		);
+	},
+	async replaceImage({ documentId, index, target, data }) {
+		return editImage(documentId, index, (mupdf, document) =>
+			replaceImage(mupdf, document, index, { target, data }),
+		);
+	},
+	async addImage({ documentId, index, point, data }) {
+		return editImage(documentId, index, (mupdf, document) =>
+			addImage(mupdf, document, index, { point, data }),
+		);
+	},
 	history({ documentId, direction }) {
 		const entry = getEntry(documentId);
 		const page = stepHistory(entry.document, direction < 0 ? -1 : 1);
@@ -245,12 +291,16 @@ const handlers = {
 		else forgetPageText(entry, page);
 		return { result: { page, ...historyState(entry.document) } };
 	},
-	// Texte modifié : le fichier est réécrit en entier (l'ancien texte n'y
-	// reste pas) et la révision est une « edit », sinon une « annotate ».
+	// Texte ou images modifiés : le fichier est réécrit en entier (l'ancien
+	// texte, l'image retirée n'y restent pas) et la révision est une
+	// « edit », sinon une « annotate ».
 	save({ documentId }) {
 		const document = getDocument(documentId);
-		const isEdit = hasTextEdits(document);
-		const data = saveDocument(document, { rewrite: isEdit });
+		const isEdit = hasTextEdits(document) || hasImageEdits(document);
+		const data = saveDocument(document, {
+			rewrite: isEdit,
+			sanitize: isEdit && needsSanitize(document),
+		});
 		return {
 			result: { data, origin: isEdit ? 'edit' : 'annotate' },
 			transfer: [data.buffer],
@@ -314,6 +364,7 @@ const QUEUED_TYPES = new Set([
 	'annotations',
 	'annotationPages',
 	'textBlocks',
+	'images',
 ]);
 
 async function processQueue() {

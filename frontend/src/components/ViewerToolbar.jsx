@@ -241,10 +241,10 @@ function ViewerToolbar({
 							className="button button--ghost viewer-toolbar__icon"
 							aria-label={
 								hasUnsavedChanges
-									? 'Modifier le texte (modifications non enregistrées)'
-									: 'Modifier le texte'
+									? 'Modifier le contenu (modifications non enregistrées)'
+									: 'Modifier le contenu'
 							}
-							title="Modifier le texte"
+							title="Modifier le texte et les images"
 							aria-pressed={isEditingText}
 							onClick={onToggleEditText}
 							data-unsaved={hasUnsavedChanges || undefined}

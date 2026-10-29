@@ -1422,13 +1422,21 @@ export function enableHistory(document) {
 // modifications s'ajoutent à la fin du fichier ouvert, sans toucher au
 // reste (une signature numérique reste vérifiable, le chiffrement est
 // gardé). Un fichier que MuPDF a dû réparer est réécrit en entier, comme
-// avec `rewrite` (texte modifié : l'ancien texte ne doit pas rester dans le
-// fichier, `garbage` retire les objets qui ne servent plus ; `compress`
-// compresse les flux qui ne le sont pas encore, dont les polices ajoutées).
-export function saveDocument(document, { rewrite = false } = {}) {
+// avec `rewrite` (texte ou images modifiés : l'ancien texte, l'image
+// retirée ne doivent pas rester dans le fichier, `garbage` retire les
+// objets qui ne servent plus ; `compress` compresse les flux qui ne le sont
+// pas encore, dont les polices et les images PNG ajoutées).
+// `sanitize` (avec `rewrite`) : le contenu de chaque page est refiltré par
+// MuPDF et ses ressources réduites à ce qu'il utilise (ressources héritées
+// recopiées sur les pages : pdfContent.needsSanitize).
+export function saveDocument(
+	document,
+	{ rewrite = false, sanitize = false } = {},
+) {
 	// `encrypt=keep` : réécrit en entier, un PDF protégé le reste aussi.
 	let options = 'encrypt=keep';
-	if (rewrite) options = 'garbage=compact,compress,encrypt=keep';
-	else if (document.canBeSavedIncrementally()) options = 'incremental';
+	if (rewrite) {
+		options = `garbage=compact,compress,${sanitize ? 'sanitize=yes,' : ''}encrypt=keep`;
+	} else if (document.canBeSavedIncrementally()) options = 'incremental';
 	return document.saveToBuffer(options).asUint8Array().slice();
 }

@@ -1,0 +1,116 @@
+/* Calque dans le repère de la page non tournée, comme les autres calques :
+   la rotation d'affichage est une transformation CSS. Seules les images
+   reçoivent le pointeur. */
+.pdf-image-edit-layer {
+	position: absolute;
+	inset-block-start: 0;
+	inset-inline-start: 0;
+	overflow: clip;
+	transform-origin: 0 0;
+	direction: ltr;
+	pointer-events: none;
+}
+
+.pdf-image-edit-layer__item {
+	position: absolute;
+}
+
+.pdf-image-edit-layer__image {
+	position: absolute;
+	inset: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	outline: 1px dashed color-mix(in srgb, #2f6fdb 60%, transparent);
+	outline-offset: -1px;
+	cursor: pointer;
+	pointer-events: auto;
+	touch-action: none;
+}
+
+.pdf-image-edit-layer__image:hover {
+	background: color-mix(in srgb, #2f6fdb 8%, transparent);
+}
+
+.pdf-image-edit-layer__image[aria-pressed='true'] {
+	outline: 2px solid #2f6fdb;
+	outline-offset: 0;
+}
+
+.pdf-image-edit-layer__image[aria-pressed='true'][data-can-move='true'] {
+	cursor: move;
+}
+
+.pdf-image-edit-layer__image:focus-visible {
+	outline: 3px solid #2f6fdb;
+	outline-offset: 1px;
+}
+
+.pdf-image-edit-layer__image:disabled {
+	cursor: default;
+}
+
+.pdf-image-edit-layer__handle {
+	position: absolute;
+	inline-size: 14px;
+	block-size: 14px;
+	margin-inline-start: -7px;
+	margin-block-start: -7px;
+	border: 2px solid #ffffff;
+	border-radius: 50%;
+	background: #2f6fdb;
+	pointer-events: auto;
+	touch-action: none;
+}
+
+/* Zone de prise plus large que la poignée (doigt). */
+.pdf-image-edit-layer__handle::before {
+	content: '';
+	position: absolute;
+	inset: -14px;
+}
+
+.pdf-image-edit-layer__handle[data-corner='nw'] {
+	inset-block-start: 0;
+	inset-inline-start: 0;
+	cursor: nwse-resize;
+}
+
+.pdf-image-edit-layer__handle[data-corner='ne'] {
+	inset-block-start: 0;
+	inset-inline-start: 100%;
+	cursor: nesw-resize;
+}
+
+.pdf-image-edit-layer__handle[data-corner='sw'] {
+	inset-block-start: 100%;
+	inset-inline-start: 0;
+	cursor: nesw-resize;
+}
+
+.pdf-image-edit-layer__handle[data-corner='se'] {
+	inset-block-start: 100%;
+	inset-inline-start: 100%;
+	cursor: nwse-resize;
+}
+
+/* Image en cours d'écriture : son futur cadre. */
+.pdf-image-edit-layer__pending {
+	position: absolute;
+	outline: 2px dashed #2f6fdb;
+	background: color-mix(in srgb, #2f6fdb 10%, transparent);
+	pointer-events: none;
+}
+
+@media (forced-colors: active) {
+	.pdf-image-edit-layer__image[aria-pressed='true'],
+	.pdf-image-edit-layer__pending {
+		outline-color: Highlight;
+	}
+
+	.pdf-image-edit-layer__handle {
+		background: Highlight;
+	}
+}

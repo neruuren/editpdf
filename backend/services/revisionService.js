@@ -91,7 +91,7 @@ async function _addRevision(
 }
 
 // Origines qu'un envoi peut déclarer : une nouvelle version (fiche) ou un
-// enregistrement de la visionneuse (annotations, texte modifié).
+// enregistrement de la visionneuse (annotations, texte ou images modifiés).
 const UPLOAD_ORIGINS = new Set(['upload', 'annotate', 'edit']);
 
 function _parseOrigin(value) {

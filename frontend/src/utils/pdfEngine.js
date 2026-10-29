@@ -108,6 +108,25 @@ function _pdf(documentId, info) {
 			call('replaceText', { documentId, index, target, text, style }),
 		addText: (index, { point, text, style }) =>
 			call('addText', { documentId, index, point, text, style }),
+		getImages: (index, { signal } = {}) =>
+			call('images', { documentId, index }, { signal }),
+		deleteImage: (index, { target }) =>
+			call('deleteImage', { documentId, index, target }),
+		moveImage: (index, { target, rect }) =>
+			call('moveImage', { documentId, index, target, rect }),
+		// `data` (Uint8Array) est transféré au worker : inutilisable ensuite.
+		replaceImage: (index, { target, data }) =>
+			call(
+				'replaceImage',
+				{ documentId, index, target, data },
+				{ transfer: [data.buffer] },
+			),
+		addImage: (index, { point, data }) =>
+			call(
+				'addImage',
+				{ documentId, index, point, data },
+				{ transfer: [data.buffer] },
+			),
 		undo: () => call('history', { documentId, direction: -1 }),
 		redo: () => call('history', { documentId, direction: 1 }),
 		save: () => call('save', { documentId }),
@@ -153,8 +172,15 @@ function _pdf(documentId, info) {
 //   le bloc), text }, text, style }), addText(index, { point, text, style })
 //   (style : { font, bold, italic, size, color, align }) → { fontReplaced:
 //   { from, to } | null, page, canUndo, canRedo, isDirty } ;
+// - images du contenu (workers/pdfImageEdit.js) : getImages(index,
+//   { signal }) → [{ index, rect, width, height (pixels), canMove }] ;
+//   deleteImage(index, { target: { index, rect } }), moveImage(index,
+//   { target, rect }), replaceImage(index, { target, data }), addImage(index,
+//   { point, data }) (data : PNG ou JPEG, Uint8Array transféré ; + rect) →
+//   { page, canUndo, canRedo, isDirty } ;
 // - save() → { data (Uint8Array : le PDF modifié, en incrémental, ou réécrit
-//   en entier si le texte a changé), origin ('annotate' | 'edit') } ;
+//   en entier si le texte ou les images ont changé), origin ('annotate' |
+//   'edit') } ;
 // - unlock(password) → document déverrouillé | null ;
 // - close() : libère le document dans le worker (déverrouillé ou non).
 export async function openPdf(data) {

@@ -1,7 +1,7 @@
 # ADR 0007 : édition du texte existant
 
 - **Date** : 2026-10-28
-- **Statut** : accepté (T4a : texte ; T4b, les images, viendra ensuite)
+- **Statut** : accepté (T4a : texte ; T4b : images)
 
 ## Contexte
 
@@ -61,7 +61,7 @@ Choix de Grégory (2026-10-28) :
 
 ### Interface
 
-- Un bouton « Modifier le texte » ouvre la barre `TextEditToolbar` et ferme le mode « Annoter », et inversement.
+- Un bouton « Modifier le texte » (« Modifier le contenu » depuis T4b) ouvre la barre `TextEditToolbar` et ferme le mode « Annoter », et inversement.
 - Outils : « Modifier le texte », où chaque ligne modifiable est un bouton sur la page, et « Ajouter du texte », où un clic ouvre une saisie.
 - **Saisie** (`TextEditBox`) : un `<textarea>` sur fond blanc qui cache le texte d'origine, dans une police CSS proche.
   - Valider : Entrée pour une ligne (Maj + Entrée pour un retour à la ligne), Ctrl + Entrée pour un paragraphe ou un texte ajouté.
@@ -70,6 +70,69 @@ Choix de Grégory (2026-10-28) :
 - Les réglages de la barre s'appliquent à la saisie en cours, sinon au texte ajouté : police, gras, italique, taille, couleur et alignement de celui-ci sont mémorisés sur l'appareil.
 - La police d'origine figure dans le choix des polices (« D'origine (nom) », « remplacée » si elle ne peut pas servir). Gras ou italique sur la police d'origine passent à la police standard de sa famille.
 - Police remplacée à l'écriture : un avertissement nomme la police d'origine et la police utilisée.
+
+## T4b : les images
+
+Choix faits sans nouvelle question (2026-10-29), dans la ligne de T4a : mêmes principes « retirer puis redessiner », même mode « Modifier », même historique, même enregistrement. À revoir avec Grégory s'ils ne lui conviennent pas.
+
+### Lecture (`workers/pdfImageEdit.js`)
+
+- Un `mupdf.Device` JS parcourt le **contenu** de la page (`runPageContents`, sans les annotations) : chaque image dessinée, avec sa matrice, son opacité et ses découpes, et la boîte de tout ce qui est dessiné (tracés, texte, dégradés, images), dans l'ordre.
+- Les images d'un Form XObject et les images inline sont modifiables. Celles d'un masque souple ou d'un motif ne sont pas listées.
+- Une image découpée par un tracé garde sa découpe (réécrite avec elle).
+  - Découpée par un texte, un trait ou un masque souple : elle se supprime mais ne se déplace pas (`canMove` faux).
+  - Une image à masque (PNG transparent) arrive découpée par son propre masque : cette découpe vient avec l'objet image et ne compte pas.
+- La partie visible (boîte ∩ découpes ∩ page) est ce que l'interface montre et déplace.
+- Bornes d'un PDF piégé :
+  - 500 images et 200 000 appels du device par page : au-delà, la lecture s'interrompt et la page est « trop complexe » (un PDF de 200 Ko peut dessiner 3 millions d'images, constaté par la revue de sécurité) ;
+  - 2 000 segments par découpe, 100 000 segments parcourus ;
+  - au-delà, l'image ne se redessine pas.
+
+### Retrait et redessin
+
+1. **Retrait.** `applyRedactions(false, REDACT_IMAGE_REMOVE, LINE_ART_NONE, TEXT_NONE)` retire **toute image dont la boîte touche la zone**, occurrence par occurrence (constaté : la deuxième copie d'un même logo reste). Elle n'épargne pas une image cachée par une découpe. La zone est un carré de 0,5 point, choisi sur une grille de 8 × 8 dans l'image, hors des boîtes des autres images. Les annotations sont mises de côté comme en T4a (`pdfContent.redact`).
+2. **Image posée sur une autre** (aucune case libre, cas du logo sur un fond) : celle du dessous est retirée aussi, puis redessinée **au début** du contenu, ce qui est fidèle seulement si rien n'était dessiné sous elle. Sinon tout est abandonné : « Cette image est posée sur une autre ».
+3. **Vérification.** On compare les empreintes (pixels et matrice au dixième de point) de toutes les images dessinées, avant et après : seules les images visées ont disparu, sinon tout est abandonné.
+4. **Redessin.** Le même objet image est réutilisé (`addImage` le retrouve par l'empreinte de ses données : un JPEG reste en DCTDecode, le masque est gardé, rien n'est dupliqué). Il est écrit dans un flux ajouté, sous la matrice inverse de la page :
+   - découpes réécrites point par point en coordonnées de la page ;
+   - opacité par un ExtGState `EdG<n>` ;
+   - XObject `EdI<n>` (jamais un nom venu du PDF) ;
+   - carré unité retourné : MuPDF place l'image origine en haut à gauche, le PDF en bas à gauche.
+5. **Niveau** : l'image redessinée va à la fin du contenu (au-dessus du reste), ou au début si elle était sous tout ce qui la touchait (fond, filigrane).
+6. **Relecture** : l'image doit être dessinée où prévu ; l'opération renvoie sa partie visible (`rect`) pour la garder sélectionnée.
+
+### Opérations
+
+- **Supprimer**.
+- **Déplacer ou redimensionner** : la partie visible est envoyée sur un nouveau rectangle, découpe comprise. L'interface garde les proportions : les quatre coins s'étirent à proportions gardées, le coin opposé reste fixe.
+- **Remplacer** par une image PNG ou JPEG, centrée à ses proportions dans la partie visible de l'ancienne, sans découpe, avec son opacité.
+- **Ajouter** une image PNG ou JPEG, au centre de la page affichée, à sa taille d'après sa résolution (96 dpi par défaut), au plus la moitié de la page, entière sur la page. Elle va au-dessus du reste.
+- **Fichier envoyé** :
+  - signature PNG ou JPEG vérifiée, 20 Mo au plus ;
+  - au plus 10 000 px de côté et 25 Mpx, vérifiés avant tout décodage : `new Image()` ne lit que l'en-tête ;
+  - un JPEG est gardé tel quel (aucune perte), mais sans ses métadonnées : segments APP1 à APP13, APP15 et commentaires retirés (EXIF : position GPS, appareil, date) ; APP0, APP2 (profil de couleur) et APP14 (CMJN) restent ;
+  - son orientation EXIF est appliquée en le plaçant : MuPDF, comme les lecteurs de PDF, l'ignore (constaté) ;
+  - un PNG est décodé et réécrit, compressé à l'enregistrement ; un chunk iCCP, zTXt ou iTXt de plus de 64 Ko est refusé (MuPDF le gonfle dès la lecture de l'en-tête).
+- Opérations du journal « page:Ajouter une image », « Remplacer l’image », « Déplacer l’image », « Supprimer l’image » : annuler et rétablir sont communs, et l'enregistrement est une réécriture complète en révision `edit`, comme pour le texte. L'image retirée ne reste pas dans le fichier : `garbage` retire les objets qui ne servent plus.
+- **Ressources héritées** : une image (ou un formulaire) rangée dans les ressources d'un nœud de l'arbre des pages y restait référencée après le caviardage, donc gardée par `garbage`. Après un caviardage (texte ou image), ces ressources sont recopiées sur chaque page qui les hérite et retirées des nœuds parents ; l'enregistrement ajoute alors `sanitize=yes`, qui réduit les ressources de chaque page à ce qu'elle utilise.
+- Une page modifiée (texte ou image) perd sa vignette `/Thumb`, qui montrerait l'ancien contenu.
+
+### Interface
+
+- Troisième outil « Images » du mode « Modifier » ; le bouton de la barre d'outils devient « Modifier le contenu ».
+- `PdfImageEditLayer` : chaque image est un bouton.
+  - Clic : la sélectionner.
+  - Glisser : la déplacer. Ses coins : l'agrandir ou la réduire.
+  - Clavier : flèches pour déplacer (Maj : 10 points), + et − pour la taille, une seule écriture après 0,5 s sans touche ; Suppr pour supprimer ; Échap pour désélectionner.
+- La barre propose « Ajouter une image… », « Remplacer… » et « Supprimer ». Une image qui ne se déplace pas le dit (« peut seulement être supprimée »).
+
+### Limites de T4b
+
+- Une image entièrement posée sur une autre, elle-même posée sur quelque chose (un rectangle blanc de fond de page, par exemple), est refusée.
+- Une image redessinée change de niveau par rapport au contenu qu'elle croise : au-dessus de tout, ou en dessous de tout.
+- Les images d'un masque souple, d'un motif ou d'une police Type3 ne se modifient pas. Les masques d'image (`ImageMask`, une couleur) sont comptés dans la vérification, mais pas listés.
+- Pas de rotation, ni de recadrage, ni d'export de l'image (pistes pour plus tard).
+- Comme pour le texte, ce n'est pas un caviardage : les révisions précédentes gardent l'image.
 
 ## Conséquences
 

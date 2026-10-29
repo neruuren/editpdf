@@ -3,6 +3,7 @@ import FreeTextEditor from './FreeTextEditor';
 import PdfAnnotationLayer from './PdfAnnotationLayer';
 import PdfDrawingLayer from './PdfDrawingLayer';
 import PdfTextEditLayer from './PdfTextEditLayer';
+import PdfImageEditLayer from './PdfImageEditLayer';
 import PdfTextLayer from './PdfTextLayer';
 import { annotationAt, pagePointAt } from '../utils/annotations';
 import './PdfPageView.css';
@@ -29,7 +30,8 @@ const PLACING_TOOLS = new Set(['note', 'text', 'stamp']);
 // (présentation). `annotating` (PdfViewer) : version de la page (elle est
 // redessinée à chaque modification), mode et outil d'annotation, styles,
 // annotation sélectionnée, éditeur de texte libre et leurs actions ;
-// `annotating.textEditing` : mode « Modifier » (calque PdfTextEditLayer).
+// `annotating.textEditing` : mode « Modifier » (calques PdfTextEditLayer et,
+// avec l'outil « Images », PdfImageEditLayer).
 function PdfPageView({
 	pdf,
 	index,
@@ -220,6 +222,29 @@ function PdfPageView({
 					onCancel={textEditing.onCancel}
 				/>
 			)}
+			{isReady &&
+				textEditing?.isEditingText &&
+				textEditing.tool === 'image' && (
+					<PdfImageEditLayer
+						pdf={pdf}
+						index={index}
+						page={page}
+						scale={scale}
+						rotation={rotation}
+						version={version}
+						isLocked={annotating.isLocked}
+						selection={
+							textEditing.imageSelection?.page === index
+								? textEditing.imageSelection
+								: null
+						}
+						onSelect={(image) => textEditing.onSelectImage(index, image)}
+						onMove={(image, rect) =>
+							textEditing.onMoveImage(index, image, rect)
+						}
+						onDelete={textEditing.onDeleteImage}
+					/>
+				)}
 			{isDrawing && (
 				<PdfDrawingLayer
 					page={page}

@@ -2,7 +2,7 @@
 
 Objectif : couvrir l'essentiel de ce que font les éditeurs PDF payants, pour un seul utilisateur. Les tranches sont livrées dans l'ordre ; chacune laisse l'application utilisable. Cocher une case **dans le même changement** que le code (règle de maintenance de [CLAUDE.md](../CLAUDE.md)).
 
-Priorités de Grégory : **T2-T3 (lire + annoter)**, puis **T4 (éditer le texte existant)** : T4a (le texte) fait, T4b (les images) à venir.
+Priorités de Grégory : **T2-T3 (lire + annoter)**, puis **T4 (éditer le contenu existant)** : T4a (le texte) et T4b (les images) faits.
 
 Légende : `[x]` fait, `[ ]` à faire. Côté : **N** = navigateur (MuPDF.js), **S** = serveur (MuPDF Node ou outils système).
 
@@ -83,7 +83,7 @@ Livrée en deux temps : **T3a** (marquer le texte, notes et texte libre, enregis
 - [x] Déplacement de tous les types (sauf les effets sur le texte), redimensionnement (formes, dessins, tampons à leurs proportions, texte libre), extrémités d'une ligne (N)
 - [x] Aplatir les annotations (les fondre dans le contenu, liens et formulaires gardés), annulable avant l'enregistrement (N)
 
-## T4 : édition du texte existant
+## T4 : édition du contenu existant (texte, images)
 
 Livrée en deux temps : **T4a** (le texte) puis **T4b** (les images). Approche et limites : [ADR 0007](adr/0007-edition-du-texte-existant.md).
 
@@ -98,7 +98,9 @@ Livrée en deux temps : **T4a** (le texte) puis **T4b** (les images). Approche e
 
 ### T4b
 
-- [ ] Ajout, remplacement, déplacement et suppression d'images (N)
+- [x] Outil « Images » du mode « Modifier » : sélection, déplacement (glisser, flèches), redimensionnement à proportions, suppression (N)
+- [x] Retrait ciblé vérifié (caviardage minuscule, image du dessous redessinée si besoin), redessin du même objet image avec sa découpe et son opacité (N)
+- [x] Remplacement et ajout d'une image PNG ou JPEG bornée ; enregistrement en révision `edit`, fichier réécrit en entier (N → S)
 
 ## T5 : organisation des pages
 

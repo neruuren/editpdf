@@ -19,6 +19,20 @@
 // texte et les annotations. Chaque modification est une opération du
 // journal de MuPDF (« <page>:<libellé> »), annulable comme une annotation.
 
+import {
+	appendContent,
+	finite,
+	hasSteps,
+	invert,
+	isTrusted,
+	num,
+	operation,
+	pageResources,
+	redact,
+	resourceName,
+	trust,
+} from './pdfContent';
+
 // Libellés des opérations du journal : un enregistrement qui en contient
 // réécrit tout le fichier (l'ancien texte n'y reste pas).
 export const TEXT_EDIT_LABELS = ['Modifier le texte', 'Ajouter du texte'];
@@ -56,51 +70,13 @@ const STANDARD_FACES = {
 export const FONT_CHOICES = ['original', ...Object.keys(STANDARD_FACES)];
 export const ALIGNMENTS = ['left', 'center', 'right'];
 
-// Clés privées (ignorées des autres lecteurs) : les polices déjà embarquées
-// par l'app (catalogue, partagées par toutes les pages), et le
-// flux « q » qui isole le contenu d'origine d'une page.
+// Clé privée (ignorée des autres lecteurs) : les polices déjà embarquées
+// par l'app (catalogue, partagées par toutes les pages).
 const FONTS_KEY = 'EditpdfFonts';
-const WRAP_KEY = 'EditpdfWrap';
 
 // La police d'origine n'a pas su écrire le texte (relu autrement) : on
 // recommence avec la police standard.
 class FontMismatchError extends Error {}
-
-function _finite(...values) {
-	return values.every((value) => Number.isFinite(value));
-}
-
-// Nombre d'un flux de contenu : jamais d'exposant ni de NaN.
-// Au-delà de 10 millions de points (PDF piégé), toFixed écrirait un exposant :
-// refusé.
-const MAX_NUMBER = 1e7;
-
-function _num(value) {
-	if (!Number.isFinite(value) || Math.abs(value) >= MAX_NUMBER) {
-		throw new Error('Page illisible');
-	}
-	return String(Number(value.toFixed(3)));
-}
-
-// Objets que l'app a écrits pendant la session (numéros d'objet), par
-// document : seules ces polices et cette enveloppe « q » sont réutilisées.
-// Une marque /EditpdfFonts ou /EditpdfWrap venue du fichier (PDF piégé) ne
-// vaut rien. Elles sont rangées dans des objets du journal : une
-// modification annulée les retire avec elle.
-const trusted = new WeakMap();
-
-function _trust(document, object) {
-	if (!trusted.has(document)) trusted.set(document, new Set());
-	trusted.get(document).add(object.asIndirect());
-	return object;
-}
-
-function _isTrusted(document, object) {
-	return (
-		object.isIndirect() &&
-		Boolean(trusted.get(document)?.has(object.asIndirect()))
-	);
-}
 
 function _toHex(color) {
 	if (!Array.isArray(color) || color.length === 0) return '#000000';
@@ -243,7 +219,7 @@ function _lineRect(line) {
 		x1 = Math.max(x1, quad[2], quad[6]);
 	}
 	const [, y0, , y1] = line.bbox;
-	return _finite(x0, x1) ? [x0, y0, x1, y1] : line.bbox;
+	return finite(x0, x1) ? [x0, y0, x1, y1] : line.bbox;
 }
 
 function _describeLine(line, index, { x0, y0 }) {
@@ -252,7 +228,7 @@ function _describeLine(line, index, { x0, y0 }) {
 	const text = _lineText(line);
 	const [rx0, ry0, rx1, ry1] = _lineRect(line);
 	const isEditable =
-		_isHorizontal(line) && !line.isTruncated && _finite(size) && size > 0;
+		_isHorizontal(line) && !line.isTruncated && finite(size) && size > 0;
 	return {
 		index,
 		text,
@@ -367,7 +343,7 @@ function _validStyle(style) {
 	if (!ALIGNMENTS.includes(align)) throw new Error('Alignement invalide');
 	const fontSize = Number(size);
 	if (
-		!_finite(fontSize) ||
+		!finite(fontSize) ||
 		fontSize < MIN_TEXT_SIZE ||
 		fontSize > MAX_TEXT_SIZE
 	) {
@@ -405,8 +381,8 @@ function _embeddedFontRef(document, key, font) {
 		root.put(FONTS_KEY, fonts);
 	}
 	const existing = fonts.get(key);
-	if (_isTrusted(document, existing)) return existing;
-	const ref = _trust(document, document.addFont(font));
+	if (isTrusted(document, existing)) return existing;
+	const ref = trust(document, document.addFont(font));
 	fonts.put(key, ref);
 	return ref;
 }
@@ -425,71 +401,6 @@ function _originalFontKey(font) {
 		hash = Math.imul(hash, 0x01000193) >>> 0;
 	}
 	return `Font${hash.toString(16).padStart(8, '0')}`;
-}
-
-// Polices de la page : ses ressources propres (celles héritées sont
-// copiées, pour ne pas toucher aux autres pages).
-function _pageFonts(document, pageObject) {
-	let resources = pageObject.get('Resources');
-	if (!resources.isDictionary()) {
-		const inherited = pageObject.getInheritable('Resources');
-		resources = document.newDictionary();
-		if (inherited.isDictionary()) {
-			inherited.forEach((value, key) => resources.put(key, value));
-		}
-		pageObject.put('Resources', resources);
-	}
-	let fonts = resources.get('Font');
-	if (!fonts.isDictionary()) {
-		fonts = document.newDictionary();
-		resources.put('Font', fonts);
-	}
-	return fonts;
-}
-
-// Nom de la police `ref` dans les ressources de la page (ajoutée au besoin).
-function _resourceName(fonts, ref) {
-	let found = null;
-	// Seul un nom écrit par l'app (EdF<n>) : un nom venu du PDF irait tel
-	// quel dans le flux de contenu.
-	fonts.forEach((value, key) => {
-		if (
-			!found &&
-			/^EdF\d{1,6}$/.test(key) &&
-			value.isIndirect() &&
-			value.asIndirect() === ref.asIndirect()
-		) {
-			found = key;
-		}
-	});
-	if (found) return found;
-	let number = 1;
-	while (!fonts.get(`EdF${number}`).isNull()) number++;
-	fonts.put(`EdF${number}`, ref);
-	return `EdF${number}`;
-}
-
-// Ajoute `content` à la fin du contenu de la page. Le contenu d'origine est
-// d'abord isolé entre « q » et « Q » (une seule fois) : un état graphique
-// laissé ouvert (matrice, couleur) ne déplace pas le texte écrit.
-function _appendContent(document, pageObject, content) {
-	const contents = pageObject.get('Contents');
-	const items = [];
-	if (contents.isArray()) contents.forEach((item) => items.push(item));
-	else if (!contents.isNull()) items.push(contents);
-	const array = document.newArray();
-	const isWrapped = items.length > 0 && _isTrusted(document, items[0]);
-	if (items.length > 0 && !isWrapped) {
-		array.push(
-			_trust(document, document.addStream('q\n', { [WRAP_KEY]: true })),
-		);
-		for (const item of items) array.push(item);
-		array.push(document.addStream('\nQ\n', {}));
-	} else {
-		for (const item of items) array.push(item);
-	}
-	array.push(document.addStream(content, {}));
-	pageObject.put('Contents', array);
 }
 
 // Police qui écrira `text` : celle d'origine si elle a tous ses caractères,
@@ -533,7 +444,7 @@ function _glyphs(font, text, size) {
 		if (gid === 0 && char === ' ') {
 			if (run) parts.push(`<${run}>`);
 			run = '';
-			parts.push(_num(-SPACE_WIDTH * 1000));
+			parts.push(num(-SPACE_WIDTH * 1000));
 			width += SPACE_WIDTH * size;
 			continue;
 		}
@@ -548,39 +459,26 @@ function _glyphs(font, text, size) {
 // coordonnées MuPDF). La matrice inverse de la page ramène ces coordonnées
 // dans l'espace du PDF ; la ligne de base y vers le bas, d'où le -1 du Tm.
 function _textContent(page, { fontName, font, size, rgb, lines }) {
-	const [a, b, c, d, e, f] = _invert(page.getTransform());
+	const [a, b, c, d, e, f] = invert(page.getTransform());
 	const body = lines
 		.filter(({ text }) => text !== '')
 		.map(({ text, x, y }) => {
 			const { tj } = _glyphs(font, text, size);
-			return `1 0 0 -1 ${_num(x)} ${_num(y)} Tm ${tj}`;
+			return `1 0 0 -1 ${num(x)} ${num(y)} Tm ${tj}`;
 		});
 	return [
 		'q',
-		`${[a, b, c, d, e, f].map(_num).join(' ')} cm`,
+		`${[a, b, c, d, e, f].map(num).join(' ')} cm`,
 		'BT',
 		// État du texte remis à zéro : rien d'hérité du contenu d'origine.
 		'0 Tc 0 Tw 100 Tz 0 TL 0 Ts 0 Tr',
-		`/${fontName} ${_num(size)} Tf`,
-		`${rgb.map(_num).join(' ')} rg`,
+		`/${fontName} ${num(size)} Tf`,
+		`${rgb.map(num).join(' ')} rg`,
 		...body,
 		'ET',
 		'Q',
 		'',
 	].join('\n');
-}
-
-function _invert([a, b, c, d, e, f]) {
-	const det = a * d - b * c;
-	if (!det) throw new Error('Page illisible');
-	return [
-		d / det,
-		-b / det,
-		-c / det,
-		a / det,
-		(c * f - d * e) / det,
-		(b * e - a * f) / det,
-	];
 }
 
 // Caractères visibles des lignes, comptés avec leur position (au dixième
@@ -611,50 +509,41 @@ function _allLines(blocks) {
 
 // Retire du contenu les caractères des lignes `targets` : une annotation
 // Redact par suite de caractères de même ligne de base et même corps, sur
-// une bande fine. Les annotations de la page (liens, textes libres, autres
-// caviardages en attente) sont mises de côté : MuPDF supprimerait celles
-// qui touchent la zone.
+// une bande fine.
 function _removeLines(document, index, targets) {
-	let page = document.loadPage(index);
-	const pageObject = page.getObject();
-	const annotations = pageObject.get('Annots');
-	try {
-		if (!annotations.isNull()) {
-			pageObject.put('Annots', document.newArray());
-			page.destroy();
-			page = document.loadPage(index);
-		}
-		for (const line of targets) {
-			let run = null;
-			const runs = [];
-			for (const { c, origin, size, quad } of line.chars) {
-				if (c.trim() === '' || !_finite(size, origin[1])) continue;
-				const x0 = Math.min(quad[0], quad[4]);
-				const x1 = Math.max(quad[2], quad[6]);
-				if (run && run.baseline === origin[1] && run.size === size) {
-					run.x1 = Math.max(run.x1, x1);
-					run.x0 = Math.min(run.x0, x0);
-				} else {
-					run = { baseline: origin[1], size, x0, x1 };
-					runs.push(run);
+	redact(
+		document,
+		index,
+		(page) => {
+			for (const line of targets) {
+				let run = null;
+				const runs = [];
+				for (const { c, origin, size, quad } of line.chars) {
+					if (c.trim() === '' || !finite(size, origin[1])) continue;
+					const x0 = Math.min(quad[0], quad[4]);
+					const x1 = Math.max(quad[2], quad[6]);
+					if (run && run.baseline === origin[1] && run.size === size) {
+						run.x1 = Math.max(run.x1, x1);
+						run.x0 = Math.min(run.x0, x0);
+					} else {
+						run = { baseline: origin[1], size, x0, x1 };
+						runs.push(run);
+					}
+				}
+				for (const { baseline, size, x0, x1 } of runs) {
+					const redaction = page.createAnnotation('Redact');
+					redaction.setRect([
+						x0,
+						baseline - BAND_TOP * size,
+						x1,
+						baseline - BAND_BOTTOM * size,
+					]);
 				}
 			}
-			for (const { baseline, size, x0, x1 } of runs) {
-				const redaction = page.createAnnotation('Redact');
-				redaction.setRect([
-					x0,
-					baseline - BAND_TOP * size,
-					x1,
-					baseline - BAND_BOTTOM * size,
-				]);
-			}
-		}
-		// Ni boîtes noires, ni images, ni dessins : le texte seulement.
-		page.applyRedactions(false, 0, 0, 0);
-	} finally {
-		page.destroy();
-		if (!annotations.isNull()) pageObject.put('Annots', annotations);
-	}
+		},
+		// Ni images, ni dessins : le texte seulement.
+		[0, 0, 0],
+	);
 }
 
 // Écrit `text` en `lines` mises en page ; renvoie la police utilisée.
@@ -682,13 +571,17 @@ function _writeText(
 		const ref = writing.isOriginal
 			? _embeddedFontRef(document, _originalFontKey(font), font)
 			: _embeddedFontRef(document, writing.face, font);
-		const fontName = _resourceName(_pageFonts(document, pageObject), ref);
+		const fontName = resourceName(
+			pageResources(document, pageObject, 'Font'),
+			ref,
+			'EdF',
+		);
 		const lines = layout.map(({ text: line, dx }, position) => ({
 			text: line,
 			x: place.x + dx,
 			y: place.baseline + position * lineHeight,
 		}));
-		_appendContent(
+		appendContent(
 			document,
 			pageObject,
 			_textContent(page, { fontName, font, size, rgb: style.rgb, lines }),
@@ -717,19 +610,6 @@ function _checkWritten(mupdf, document, index, written) {
 		});
 	} finally {
 		page.destroy();
-	}
-}
-
-// Opération du journal sur la page `index` : tout ou rien.
-function _operation(document, index, label, change) {
-	document.beginOperation(`${index}:${label}`);
-	try {
-		const result = change();
-		document.endOperation();
-		return result;
-	} catch (error) {
-		document.abandonOperation();
-		throw error;
 	}
 }
 
@@ -839,7 +719,7 @@ export function replaceText(mupdf, document, index, { target, text, style }) {
 	const params = { target, text: _validText(text), style: _validStyle(style) };
 	const label = TEXT_EDIT_LABELS[0];
 	try {
-		const { writing } = _operation(document, index, label, () =>
+		const { writing } = operation(document, index, label, () =>
 			_replace(mupdf, document, index, params),
 		);
 		return _result(writing);
@@ -848,7 +728,7 @@ export function replaceText(mupdf, document, index, { target, text, style }) {
 	}
 	// La police d'origine relit mal le texte : la police standard la plus
 	// proche, avec un avertissement.
-	const { writing } = _operation(document, index, label, () =>
+	const { writing } = operation(document, index, label, () =>
 		_replace(mupdf, document, index, { ...params, forceStandard: true }),
 	);
 	return _result(writing);
@@ -862,10 +742,10 @@ export function addText(mupdf, document, index, { point, text, style }) {
 	if (value.trim() === '') throw new Error('Texte vide');
 	const validStyle = _validStyle(style);
 	if (validStyle.font === 'original') validStyle.font = 'sans';
-	if (!Array.isArray(point) || !_finite(...point)) {
+	if (!Array.isArray(point) || !finite(...point)) {
 		throw new Error('Position invalide');
 	}
-	const { writing } = _operation(document, index, TEXT_EDIT_LABELS[1], () => {
+	const { writing } = operation(document, index, TEXT_EDIT_LABELS[1], () => {
 		const page = document.loadPage(index);
 		let place;
 		try {
@@ -888,10 +768,5 @@ export function addText(mupdf, document, index, { point, text, style }) {
 
 // Des modifications du texte depuis le dernier enregistrement ?
 export function hasTextEdits(document) {
-	const { position, steps } = document.getJournal();
-	return steps
-		.slice(0, position)
-		.some((step) =>
-			TEXT_EDIT_LABELS.some((label) => (step ?? '').endsWith(`:${label}`)),
-		);
+	return hasSteps(document, TEXT_EDIT_LABELS);
 }

@@ -1,5 +1,6 @@
-import { useId } from 'react';
+import { useId, useRef } from 'react';
 import ColorPalette from './ColorPalette';
+import { IMAGE_FILE_TYPES } from '../utils/imageEdit';
 import { TEXT_ALIGNMENTS, TEXT_FAMILIES, TEXT_SIZES } from '../utils/textEdit';
 import './TextEditToolbar.css';
 
@@ -27,6 +28,17 @@ const TOOLS = [
 			</>
 		),
 	},
+	{
+		value: 'image',
+		label: 'Images',
+		icon: (
+			<>
+				<rect x="3" y="5" width="18" height="14" rx="2" />
+				<circle cx="8.5" cy="10" r="1.5" />
+				<path d="M21 16l-5-5-8 8" />
+			</>
+		),
+	},
 ];
 
 const ALIGN_ICONS = {
@@ -47,13 +59,17 @@ function Icon({ children }) {
 	);
 }
 
-// 🔹 Barre du mode « Modifier » (texte du contenu, T4a), sous la barre
-// d'outils (en bas de l'écran sur un téléphone) : outil (modifier le texte,
-// ajouter du texte), police, gras, italique, taille, couleur, alignement,
-// passage au paragraphe entier, annuler / rétablir, enregistrer, terminer.
-// Les réglages s'appliquent au texte en cours de saisie (`session`), sinon
-// au texte ajouté. `data-keeps-text-editor` : y cliquer ne valide pas la
-// saisie (TextEditBox).
+// 🔹 Barre du mode « Modifier » (contenu : texte T4a, images T4b), sous la
+// barre d'outils (en bas de l'écran sur un téléphone) : outil (modifier le
+// texte, ajouter du texte, images), annuler / rétablir, enregistrer,
+// terminer.
+// - Texte : police, gras, italique, taille, couleur, alignement, passage au
+//   paragraphe entier. Les réglages s'appliquent au texte en cours de
+//   saisie (`session`), sinon au texte ajouté. `data-keeps-text-editor` :
+//   y cliquer ne valide pas la saisie (TextEditBox).
+// - Images : ajouter une image (fichier choisi : `onAddImage(file)`), et pour
+//   l'image sélectionnée (`imageSelection`), la remplacer
+//   (`onReplaceImage(file)`) ou la supprimer.
 function TextEditToolbar({
 	tool,
 	onToolChange,
@@ -61,6 +77,10 @@ function TextEditToolbar({
 	session,
 	onStyleChange,
 	onExtendToBlock,
+	imageSelection,
+	onAddImage,
+	onReplaceImage,
+	onDeleteImage,
 	canUndo,
 	canRedo,
 	onUndo,
@@ -75,11 +95,21 @@ function TextEditToolbar({
 	const sizeId = useId();
 	const original = session?.original ?? null;
 	const canExtend = session?.kind === 'line' && session.block.lines.length > 1;
+	const addInputRef = useRef(null);
+	const replaceInputRef = useRef(null);
+	const selectedImage = imageSelection?.image ?? null;
+
+	// Le même fichier peut être choisi deux fois de suite.
+	function handleFile(event, onFile) {
+		const [file] = event.target.files;
+		event.target.value = '';
+		if (file) onFile(file);
+	}
 	return (
 		<div
 			className="text-edit-toolbar"
 			role="toolbar"
-			aria-label="Modification du texte"
+			aria-label="Modification du contenu"
 			data-keeps-text-editor
 		>
 			<div className="text-edit-toolbar__main">
@@ -103,113 +133,165 @@ function TextEditToolbar({
 						</button>
 					))}
 				</div>
-				<div className="text-edit-toolbar__group">
-					<label htmlFor={fontId} className="visually-hidden">
-						Police
-					</label>
-					<select
-						id={fontId}
-						className="field__input text-edit-toolbar__select"
-						value={style.font}
-						onChange={(event) => onStyleChange({ font: event.target.value })}
-						disabled={isLocked}
-					>
-						{original && (
-							<option value="original">
-								{original.isReusable
-									? `D’origine (${original.name})`
-									: `D’origine (${original.name}, remplacée)`}
-							</option>
-						)}
-						{TEXT_FAMILIES.map((item) => (
-							<option key={item.value} value={item.value}>
-								{item.label}
-							</option>
-						))}
-					</select>
-					<button
-						type="button"
-						className="button button--ghost text-edit-toolbar__button text-edit-toolbar__bold"
-						aria-pressed={style.bold}
-						aria-label="Gras"
-						title="Gras"
-						onClick={() => onStyleChange({ bold: !style.bold })}
-						disabled={isLocked}
-					>
-						G
-					</button>
-					<button
-						type="button"
-						className="button button--ghost text-edit-toolbar__button text-edit-toolbar__italic"
-						aria-pressed={style.italic}
-						aria-label="Italique"
-						title="Italique"
-						onClick={() => onStyleChange({ italic: !style.italic })}
-						disabled={isLocked}
-					>
-						I
-					</button>
-					<label htmlFor={sizeId} className="visually-hidden">
-						Taille du texte
-					</label>
-					<select
-						id={sizeId}
-						className="field__input text-edit-toolbar__select"
-						value={String(style.size)}
-						onChange={(event) =>
-							onStyleChange({ size: Number(event.target.value) })
-						}
-						disabled={isLocked}
-					>
-						{!TEXT_SIZES.includes(style.size) && (
-							<option value={String(style.size)}>{style.size} pt</option>
-						)}
-						{TEXT_SIZES.map((size) => (
-							<option key={size} value={String(size)}>
-								{size} pt
-							</option>
-						))}
-					</select>
-				</div>
-				<div className="text-edit-toolbar__group">
-					<ColorPalette
-						label="Couleur du texte"
-						value={style.color}
-						onChange={(color) => onStyleChange({ color })}
-						isDisabled={isLocked}
-					/>
-				</div>
-				<div
-					className="text-edit-toolbar__group"
-					role="group"
-					aria-label="Alignement"
-				>
-					{TEXT_ALIGNMENTS.map(({ value, label }) => (
-						<button
-							key={value}
-							type="button"
-							className="button button--ghost text-edit-toolbar__button"
-							aria-pressed={style.align === value}
-							aria-label={label}
-							title={label}
-							onClick={() => onStyleChange({ align: value })}
-							disabled={isLocked}
-						>
-							<Icon>{ALIGN_ICONS[value]}</Icon>
-						</button>
-					))}
-				</div>
-				{canExtend && (
+				{tool === 'image' ? (
 					<div className="text-edit-toolbar__group">
+						<input
+							ref={addInputRef}
+							type="file"
+							accept={IMAGE_FILE_TYPES}
+							hidden
+							onChange={(event) => handleFile(event, onAddImage)}
+						/>
+						<input
+							ref={replaceInputRef}
+							type="file"
+							accept={IMAGE_FILE_TYPES}
+							hidden
+							onChange={(event) => handleFile(event, onReplaceImage)}
+						/>
 						<button
 							type="button"
 							className="button button--ghost text-edit-toolbar__button"
-							onClick={onExtendToBlock}
+							onClick={() => addInputRef.current?.click()}
 							disabled={isLocked}
 						>
-							Paragraphe entier
+							Ajouter une image…
 						</button>
+						<button
+							type="button"
+							className="button button--ghost text-edit-toolbar__button"
+							onClick={() => replaceInputRef.current?.click()}
+							disabled={isLocked || !selectedImage?.canMove}
+						>
+							Remplacer…
+						</button>
+						<button
+							type="button"
+							className="button button--ghost text-edit-toolbar__button"
+							onClick={onDeleteImage}
+							disabled={isLocked || !selectedImage}
+						>
+							Supprimer
+						</button>
+						{selectedImage && !selectedImage.canMove && (
+							<span className="text-edit-toolbar__hint">
+								Cette image peut seulement être supprimée.
+							</span>
+						)}
 					</div>
+				) : (
+					<>
+						<div className="text-edit-toolbar__group">
+							<label htmlFor={fontId} className="visually-hidden">
+								Police
+							</label>
+							<select
+								id={fontId}
+								className="field__input text-edit-toolbar__select"
+								value={style.font}
+								onChange={(event) =>
+									onStyleChange({ font: event.target.value })
+								}
+								disabled={isLocked}
+							>
+								{original && (
+									<option value="original">
+										{original.isReusable
+											? `D’origine (${original.name})`
+											: `D’origine (${original.name}, remplacée)`}
+									</option>
+								)}
+								{TEXT_FAMILIES.map((item) => (
+									<option key={item.value} value={item.value}>
+										{item.label}
+									</option>
+								))}
+							</select>
+							<button
+								type="button"
+								className="button button--ghost text-edit-toolbar__button text-edit-toolbar__bold"
+								aria-pressed={style.bold}
+								aria-label="Gras"
+								title="Gras"
+								onClick={() => onStyleChange({ bold: !style.bold })}
+								disabled={isLocked}
+							>
+								G
+							</button>
+							<button
+								type="button"
+								className="button button--ghost text-edit-toolbar__button text-edit-toolbar__italic"
+								aria-pressed={style.italic}
+								aria-label="Italique"
+								title="Italique"
+								onClick={() => onStyleChange({ italic: !style.italic })}
+								disabled={isLocked}
+							>
+								I
+							</button>
+							<label htmlFor={sizeId} className="visually-hidden">
+								Taille du texte
+							</label>
+							<select
+								id={sizeId}
+								className="field__input text-edit-toolbar__select"
+								value={String(style.size)}
+								onChange={(event) =>
+									onStyleChange({ size: Number(event.target.value) })
+								}
+								disabled={isLocked}
+							>
+								{!TEXT_SIZES.includes(style.size) && (
+									<option value={String(style.size)}>{style.size} pt</option>
+								)}
+								{TEXT_SIZES.map((size) => (
+									<option key={size} value={String(size)}>
+										{size} pt
+									</option>
+								))}
+							</select>
+						</div>
+						<div className="text-edit-toolbar__group">
+							<ColorPalette
+								label="Couleur du texte"
+								value={style.color}
+								onChange={(color) => onStyleChange({ color })}
+								isDisabled={isLocked}
+							/>
+						</div>
+						<div
+							className="text-edit-toolbar__group"
+							role="group"
+							aria-label="Alignement"
+						>
+							{TEXT_ALIGNMENTS.map(({ value, label }) => (
+								<button
+									key={value}
+									type="button"
+									className="button button--ghost text-edit-toolbar__button"
+									aria-pressed={style.align === value}
+									aria-label={label}
+									title={label}
+									onClick={() => onStyleChange({ align: value })}
+									disabled={isLocked}
+								>
+									<Icon>{ALIGN_ICONS[value]}</Icon>
+								</button>
+							))}
+						</div>
+						{canExtend && (
+							<div className="text-edit-toolbar__group">
+								<button
+									type="button"
+									className="button button--ghost text-edit-toolbar__button"
+									onClick={onExtendToBlock}
+									disabled={isLocked}
+								>
+									Paragraphe entier
+								</button>
+							</div>
+						)}
+					</>
 				)}
 			</div>
 
@@ -252,7 +334,7 @@ function TextEditToolbar({
 				<button
 					type="button"
 					className="button button--ghost text-edit-toolbar__button"
-					aria-label="Terminer la modification du texte"
+					aria-label="Terminer la modification du contenu"
 					onClick={onClose}
 				>
 					<span aria-hidden="true">✕</span>

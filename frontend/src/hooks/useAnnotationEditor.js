@@ -57,7 +57,9 @@ export function isSaveConflict(error) {
 // error, create(index, spec) → id | null, update(index, id, changes),
 // remove(index, id), removeMarkup(index, from, to), erase(index, points,
 // radius) (gomme), flatten() (aplatir), replaceText(index, params),
-// addText(index, params) (texte du contenu, T4a), undo(), redo(), save,
+// addText(index, params) (texte du contenu, T4a), deleteImage, moveImage,
+// replaceImage, addImage (index, params) (images du contenu, T4b), undo(),
+// redo(), save,
 // discard() } ;
 // `save` est une mutation : save.mutate({ force }) (force : sans contrôle
 // de la révision de départ, après un conflit).
@@ -178,6 +180,30 @@ export function useAnnotationEditor({ document, pdf, revision, author }) {
 		[isLocked, run, pdf],
 	);
 
+	const deleteImage = useCallback(
+		(index, params) =>
+			isLocked ? null : run(() => pdf.deleteImage(index, params)),
+		[isLocked, run, pdf],
+	);
+
+	const moveImage = useCallback(
+		(index, params) =>
+			isLocked ? null : run(() => pdf.moveImage(index, params)),
+		[isLocked, run, pdf],
+	);
+
+	const replaceImage = useCallback(
+		(index, params) =>
+			isLocked ? null : run(() => pdf.replaceImage(index, params)),
+		[isLocked, run, pdf],
+	);
+
+	const addImage = useCallback(
+		(index, params) =>
+			isLocked ? null : run(() => pdf.addImage(index, params)),
+		[isLocked, run, pdf],
+	);
+
 	const undo = useCallback(
 		() => (isLocked ? null : run(() => pdf.undo())),
 		[isLocked, run, pdf],
@@ -224,6 +250,10 @@ export function useAnnotationEditor({ document, pdf, revision, author }) {
 		flatten,
 		replaceText,
 		addText,
+		deleteImage,
+		moveImage,
+		replaceImage,
+		addImage,
 		undo,
 		redo,
 		save,

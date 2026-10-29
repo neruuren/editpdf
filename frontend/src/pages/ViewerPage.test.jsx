@@ -141,6 +141,17 @@ function fakeAnnotations() {
 		isDirty: position > 0,
 	});
 	const list = (index) => [...(pages.get(index) ?? [])];
+	const images = new Map();
+	const imageList = (index) =>
+		images.get(index) ?? [
+			{
+				index: 0,
+				rect: [100, 200, 300, 350],
+				width: 640,
+				height: 480,
+				canMove: true,
+			},
+		];
 	return {
 		getAnnotations: vi.fn(async (index) => list(index)),
 		getAnnotationPages: vi.fn(async (from, count) =>
@@ -251,6 +262,45 @@ function fakeAnnotations() {
 				fontReplaced: { from: 'Arial', to: 'Helvetica-Bold' },
 				...history(index),
 			};
+		}),
+		// Images du contenu (T4b) : une photo sur chaque page.
+		getImages: vi.fn(async (index) => imageList(index)),
+		moveImage: vi.fn(async (index, { target, rect }) => {
+			images.set(
+				index,
+				imageList(index).map((image) =>
+					image.index === target.index ? { ...image, rect } : image,
+				),
+			);
+			position += 1;
+			return { rect, ...history(index) };
+		}),
+		deleteImage: vi.fn(async (index, { target }) => {
+			images.set(
+				index,
+				imageList(index).filter((image) => image.index !== target.index),
+			);
+			position += 1;
+			return history(index);
+		}),
+		replaceImage: vi.fn(async (index, { target }) => {
+			position += 1;
+			return { rect: target.rect, ...history(index) };
+		}),
+		addImage: vi.fn(async (index) => {
+			const rect = [250, 400, 350, 450];
+			images.set(index, [
+				...imageList(index),
+				{
+					index: imageList(index).length,
+					rect,
+					width: 200,
+					height: 100,
+					canMove: true,
+				},
+			]);
+			position += 1;
+			return { rect, ...history(index) };
 		}),
 		save: vi.fn(async () => ({
 			data: new Uint8Array([0x25, 0x50, 0x44, 0x46]),
@@ -967,10 +1017,10 @@ describe('ViewerPage : modifier le texte', () => {
 		const page = screen.getByRole('group', { name: 'Page 1 sur 3' });
 		await within(page).findByText('Texte de la page 1');
 		await userEvent.click(
-			screen.getByRole('button', { name: 'Modifier le texte' }),
+			screen.getByRole('button', { name: 'Modifier le contenu' }),
 		);
 		const toolbar = screen.getByRole('toolbar', {
-			name: 'Modification du texte',
+			name: 'Modification du contenu',
 		});
 		return { ...opened, page, toolbar };
 	}
@@ -1104,10 +1154,96 @@ describe('ViewerPage : modifier le texte', () => {
 		expect(pdf.replaceText).not.toHaveBeenCalled();
 		await userEvent.click(screen.getByRole('button', { name: 'Annoter' }));
 		expect(
-			screen.queryByRole('toolbar', { name: 'Modification du texte' }),
+			screen.queryByRole('toolbar', { name: 'Modification du contenu' }),
 		).toBeNull();
 		expect(
 			screen.getByRole('toolbar', { name: 'Annotations' }),
+		).toBeInTheDocument();
+	});
+});
+
+describe('ViewerPage : modifier les images', () => {
+	async function openImages() {
+		const opened = await openViewer({ ...RAPPORT, lastPage: null });
+		const page = screen.getByRole('group', { name: 'Page 1 sur 3' });
+		await userEvent.click(
+			screen.getByRole('button', { name: 'Modifier le contenu' }),
+		);
+		const toolbar = screen.getByRole('toolbar', {
+			name: 'Modification du contenu',
+		});
+		await userEvent.click(
+			within(toolbar).getByRole('button', { name: 'Images' }),
+		);
+		return { ...opened, page, toolbar };
+	}
+
+	it('sélectionne une image et la déplace aux flèches', async () => {
+		const { pdf, page, toolbar } = await openImages();
+		expect(
+			within(toolbar).queryByRole('combobox', { name: 'Police' }),
+		).toBeNull();
+		const image = await within(page).findByRole('button', {
+			name: 'Image 1 (640 × 480 pixels)',
+		});
+		await userEvent.click(image);
+		expect(image).toHaveAttribute('aria-pressed', 'true');
+		await userEvent.keyboard('{Shift>}{ArrowRight}{/Shift}{ArrowDown}');
+		await waitFor(() => expect(pdf.moveImage).toHaveBeenCalledTimes(1));
+		expect(pdf.moveImage).toHaveBeenCalledWith(0, {
+			target: { index: 0, rect: [100, 200, 300, 350] },
+			rect: [110, 201, 310, 351],
+		});
+		// Relue à sa nouvelle place, elle reste sélectionnée.
+		await waitFor(() =>
+			expect(
+				within(page).getByRole('button', {
+					name: 'Image 1 (640 × 480 pixels)',
+				}),
+			).toHaveAttribute('aria-pressed', 'true'),
+		);
+		expect(
+			within(toolbar).getByRole('button', { name: 'Enregistrer' }),
+		).toBeEnabled();
+	});
+
+	it('supprime l’image sélectionnée', async () => {
+		const { pdf, page, toolbar } = await openImages();
+		const remove = within(toolbar).getByRole('button', { name: 'Supprimer' });
+		expect(remove).toBeDisabled();
+		await userEvent.click(
+			await within(page).findByRole('button', {
+				name: 'Image 1 (640 × 480 pixels)',
+			}),
+		);
+		await userEvent.click(remove);
+		expect(pdf.deleteImage).toHaveBeenCalledWith(0, {
+			target: { index: 0, rect: [100, 200, 300, 350] },
+		});
+		await waitFor(() =>
+			expect(
+				within(page).queryByRole('button', { name: /^Image 1/ }),
+			).toBeNull(),
+		);
+	});
+
+	it('ajoute une image au centre de la page affichée et la sélectionne', async () => {
+		const { pdf, page, toolbar } = await openImages();
+		const [input] = toolbar.querySelectorAll('input[type="file"]');
+		const file = new File([new Uint8Array([0x89, 0x50])], 'logo.png', {
+			type: 'image/png',
+		});
+		await userEvent.upload(input, file);
+		await waitFor(() => expect(pdf.addImage).toHaveBeenCalled());
+		const [index, params] = pdf.addImage.mock.calls[0];
+		expect(index).toBe(0);
+		expect(params.point).toEqual([297.5, 421]);
+		expect(params.data).toEqual(new Uint8Array([0x89, 0x50]));
+		expect(
+			await within(page).findByRole('button', {
+				name: 'Image 2 (200 × 100 pixels)',
+				pressed: true,
+			}),
 		).toBeInTheDocument();
 	});
 });

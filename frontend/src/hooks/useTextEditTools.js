@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useStoredChoice } from './useStoredChoice';
 import { isColor } from '../utils/annotations';
+import { readImageFile } from '../utils/imageEdit';
 import {
 	TEXT_ALIGNMENTS,
 	TEXT_FAMILIES,
@@ -15,11 +16,12 @@ const isSize = (value) => TEXT_SIZES.includes(Number(value));
 const isAlign = (value) => TEXT_ALIGNMENTS.some((item) => item.value === value);
 const isFlag = (value) => value === '0' || value === '1';
 
-// 🔹 Édition du texte du contenu de la visionneuse (T4a), autour de
-// `editor` (useAnnotationEditor) : mode « Modifier », outil (`edit` :
-// modifier une ligne ou un paragraphe ; `add` : ajouter du texte), style
-// du texte ajouté (police, gras, italique, taille, couleur, alignement :
-// mémorisés sur l'appareil) et texte en cours de saisie (`session`).
+// 🔹 Édition du contenu de la visionneuse (texte T4a, images T4b), autour
+// de `editor` (useAnnotationEditor) : mode « Modifier », outil (`edit` :
+// modifier une ligne ou un paragraphe ; `add` : ajouter du texte ;
+// `image` : les images), style du texte ajouté (police, gras, italique,
+// taille, couleur, alignement : mémorisés sur l'appareil), texte en cours
+// de saisie (`session`) et image sélectionnée (`imageSelection`).
 // Renvoie cet état et les actions de la barre et des pages.
 export function useTextEditTools(editor, { isLocked }) {
 	const [isEditingText, setIsEditingText] = useState(false);
@@ -30,6 +32,10 @@ export function useTextEditTools(editor, { isLocked }) {
 	// ({ name, family, bold, italic, isReusable } | null) }.
 	const [session, setSession] = useState(null);
 	const [notice, setNotice] = useState(null);
+	// Image sélectionnée : { page, rect, image ({ index, rect, width,
+	// height, canMove } lue par pdf.getImages) | null : en attente de la
+	// page relue après une modification }.
+	const [imageSelection, setImageSelection] = useState(null);
 	const [family, setFamily] = useStoredChoice('editpdf-text-font', {
 		isValid: isFamily,
 		fallback: 'sans',
@@ -70,11 +76,13 @@ export function useTextEditTools(editor, { isLocked }) {
 		setIsEditingText((value) => !value);
 		setTool('edit');
 		setSession(null);
+		setImageSelection(null);
 	}
 
 	function changeTool(value) {
 		setTool(value);
 		setSession(null);
+		setImageSelection(null);
 	}
 
 	// Ligne (`line`) ou paragraphe (`line` null) du bloc `block` (lu par
@@ -191,11 +199,90 @@ export function useTextEditTools(editor, { isLocked }) {
 		setNotice(result ? fontReplacedNotice(result.fontReplaced) : null);
 	}
 
+	function selectImage(page, image) {
+		setImageSelection(image ? { page, rect: image.rect, image } : null);
+	}
+
+	function _target(image) {
+		return { index: image.index, rect: image.rect };
+	}
+
+	// Déplace ou redimensionne l'image `image` de la page `page` : sa partie
+	// visible occupe `rect`. Elle reste sélectionnée, à sa nouvelle place.
+	async function moveImage(page, image, rect) {
+		if (!canEdit || !image.canMove) return;
+		const previous = { page, rect: image.rect, image };
+		setNotice(null);
+		setImageSelection({ page, rect, image: null });
+		const result = await editor.moveImage(page, {
+			target: _target(image),
+			rect,
+		});
+		_selectDrawn(page, result, previous);
+	}
+
+	async function deleteImage() {
+		const selection = imageSelection;
+		if (!canEdit || !selection?.image) return;
+		setNotice(null);
+		setImageSelection(null);
+		await editor.deleteImage(selection.page, {
+			target: _target(selection.image),
+		});
+	}
+
+	// Après une modification : l'image redessinée (`result.rect`, null si
+	// elle est hors de la page) est sélectionnée dès que la page est relue ;
+	// en cas d'échec, `previous` l'est de nouveau.
+	function _selectDrawn(page, result, previous) {
+		if (!result) setImageSelection(previous);
+		else if (!result.rect) setImageSelection(null);
+		else setImageSelection({ page, rect: result.rect, image: null });
+	}
+
+	// Fichier choisi : erreur de lecture affichée comme un avertissement.
+	async function _read(file) {
+		try {
+			return await readImageFile(file);
+		} catch (error) {
+			setNotice(error.message);
+			return null;
+		}
+	}
+
+	async function replaceImage(file) {
+		const selection = imageSelection;
+		if (!canEdit || !selection?.image) return;
+		setNotice(null);
+		const data = await _read(file);
+		if (!data) return;
+		setImageSelection({ ...selection, image: null });
+		const result = await editor.replaceImage(selection.page, {
+			target: _target(selection.image),
+			data,
+		});
+		_selectDrawn(selection.page, result, selection);
+	}
+
+	// Ajoute l'image `file` à la page `page`, centrée sur `point` ; elle est
+	// ensuite sélectionnée.
+	async function addImage(file, page, point) {
+		if (!canEdit) return;
+		setNotice(null);
+		const data = await _read(file);
+		if (!data) return;
+		const result = await editor.addImage(page, { point, data });
+		_selectDrawn(page, result, null);
+	}
+
 	return {
 		isEditingText,
 		setIsEditingText: (value) => {
 			setIsEditingText(value);
-			if (!value) setSession(null);
+			if (!value) {
+				setSession(null);
+				setImageSelection(null);
+			}
 		},
 		toggleEditing,
 		tool,
@@ -209,6 +296,12 @@ export function useTextEditTools(editor, { isLocked }) {
 		changeStyle,
 		cancel,
 		commit,
+		imageSelection,
+		selectImage,
+		moveImage,
+		deleteImage,
+		replaceImage,
+		addImage,
 		notice,
 		clearNotice: () => setNotice(null),
 	};

@@ -500,6 +500,10 @@ function PdfViewer({ document }) {
 			onExtendToBlock: textTools.extendToBlock,
 			onCommit: textTools.commit,
 			onCancel: textTools.cancel,
+			imageSelection: textTools.imageSelection,
+			onSelectImage: textTools.selectImage,
+			onMoveImage: textTools.moveImage,
+			onDeleteImage: textTools.deleteImage,
 		},
 	};
 
@@ -517,8 +521,15 @@ function PdfViewer({ document }) {
 	// est abandonnée d'abord.
 	function handleTextHistory(direction) {
 		textTools.cancel();
+		textTools.selectImage(null, null);
 		if (direction < 0) tools.undo();
 		else tools.redo();
+	}
+
+	// Image ajoutée : au centre de la page affichée.
+	function handleAddImage(file) {
+		const { width, height } = pdf.pages[page];
+		textTools.addImage(file, page, [width / 2, height / 2]);
 	}
 
 	// Une annotation choisie dans la liste : amenée à l'écran ; sélectionnée
@@ -705,6 +716,10 @@ function PdfViewer({ document }) {
 					session={textTools.session}
 					onStyleChange={textTools.changeStyle}
 					onExtendToBlock={textTools.extendToBlock}
+					imageSelection={textTools.imageSelection}
+					onAddImage={handleAddImage}
+					onReplaceImage={textTools.replaceImage}
+					onDeleteImage={textTools.deleteImage}
 					canUndo={editor.canUndo && !isEditLocked}
 					canRedo={editor.canRedo && !isEditLocked}
 					onUndo={() => handleTextHistory(-1)}
@@ -728,9 +743,11 @@ function PdfViewer({ document }) {
 			)}
 			{editor.error && (
 				<p className="pdf-viewer__error" role="alert">
-					{textTools.isEditingText
-						? 'Texte non modifié'
-						: 'Annotation non modifiée'}{' '}
+					{!textTools.isEditingText
+						? 'Annotation non modifiée'
+						: textTools.tool === 'image'
+							? 'Image non modifiée'
+							: 'Texte non modifié'}{' '}
 					: {editor.error.message}
 				</p>
 			)}
