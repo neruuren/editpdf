@@ -497,9 +497,7 @@ async function openViewer(document = RAPPORT, extra) {
 	openPdf.mockResolvedValue(pdf);
 	const fetchMock = mockFetch(routes(document, extra));
 	renderWithProviders(<App />, { route: `/documents/${document.id}` });
-	// Le premier test paie le chargement à froid de la page (lazy) : plus
-	// d’une seconde sur un runner de CI.
-	await screen.findByLabelText('Pages du document', {}, { timeout: 5000 });
+	await screen.findByLabelText('Pages du document');
 	return { pdf, fetchMock };
 }
 

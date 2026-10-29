@@ -79,5 +79,8 @@ export default defineConfig({
 		environment: 'jsdom',
 		setupFiles: ['./src/setupTests.js'],
 		globals: true,
+		// Les tests du moteur (vrai MuPDF, PDF piégés) prennent plusieurs
+		// secondes sur un runner de CI, deux à trois fois plus lent qu’en local.
+		testTimeout: 30_000,
 	},
 });
