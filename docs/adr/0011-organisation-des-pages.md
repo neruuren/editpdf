@@ -1,7 +1,7 @@
 # ADR 0011 : organisation des pages
 
 - **Date** : 2026-10-29
-- **Statut** : accepté (T5a : ordre et nombre des pages ; T5b, recadrage, numérotation, en-têtes, filigrane, viendra ensuite)
+- **Statut** : accepté (T5a : ordre et nombre des pages ; T5b : recadrage, taille, en-têtes et pieds de page, numérotation Bates, filigrane)
 
 ## Contexte
 
@@ -68,6 +68,39 @@ Choix de Grégory (2026-10-29) :
 - **Barre `PageToolbar`** : nombre de pages sélectionnées, tout sélectionner, pivoter, reculer, avancer, dupliquer, supprimer, menu « Insérer… », extraire, scinder, annuler, rétablir, enregistrer.
 - **Dialogues** : `PageDialogs` (document de la bibliothèque, mot de passe d'un PDF inséré, extraction, scission, compte rendu avec liens) et `MergeDialog` (ordre des documents, titre). La bibliothèque a un mode « Sélectionner », avec une case à cocher par carte ou par ligne.
 
+## T5b : mise en page
+
+Choix de Grégory (2026-10-29) :
+
+- **interface** : dans le mode « Pages », un menu « Mise en page… » (recadrer, changer la taille, en-têtes et pieds de page, filigrane). Chaque outil ouvre un dialogue avec un aperçu de la première page concernée, et s'applique aux pages sélectionnées ou à toutes. Même historique, même enregistrement (révision `organize`, fichier réécrit en entier) ;
+- **recadrer** : un cadre à étirer sur l'aperçu, synchronisé avec des marges en millimètres, ou « marges blanches de chaque page ». Seule la CropBox change : le contenu retiré reste dans le fichier, et « Pages entières » le rend ;
+- **en-têtes, numéros, filigrane** : du **contenu marqué, remplaçable** ;
+- **numérotation Bates** : dans la visionneuse pour le document ouvert, et pour un **lot** depuis la bibliothèque (mode « Sélectionner »), faite par le serveur, numéros continus d'un document à l'autre.
+
+### Moteur (`workers/pdfPageSetup.js`, navigateur)
+
+- **Recadrer** : `setPageBox('CropBox', …)`, qui prend le cadre dans le repère affiché (rotation et recadrage actuels compris, constaté). Côté minimal : un demi-pouce.
+- **Marges blanches** : la page est rendue en niveaux de gris (500 pixels de côté au plus, annotations comprises) et le cadre est celui des pixels plus sombres que 240. Une page blanche ne change pas ; 1 000 pages au plus à la fois.
+- **Changer la taille** : la MediaBox devient la taille voulue (orientation de chaque page, portrait ou paysage), le contenu visible est mis à l'échelle et centré par un flux `q <matrice> cm` au début et `Q` à la fin. Les autres boîtes sont retirées, la rotation est gardée (la mise à l'échelle se fait dans le repère du PDF, sans la rotation).
+  - Les annotations suivent : Rect, QuadPoints, Vertices, L, CL, InkList (et RD à l'échelle) sont recalés, et leur apparence suit leur rectangle (norme PDF). Au plus 200 000 nombres par changement de taille.
+- **Calques de l'app** (`pdfContent.js`) : en-têtes et filigrane sont chacun un flux de contenu à part, marqué par la clé privée `/EditpdfLayer` (`/Header` ou `/Watermark`). Le texte y est balisé comme artefact (`/Artifact <</Type /Pagination /Subtype /Header|Footer|Watermark>> BDC … EMC`) : un lecteur d'écran l'ignore.
+  - Poser un calque retire d'abord celui du même nom sur la page : on remplace, on n'empile pas.
+  - La marque venue du fichier est crue (il faut retrouver les calques d'une autre session). Un PDF piégé qui marque son propre contenu ne fait que le perdre quand on remplace le calque.
+  - Le caviardage de l'édition du contenu (T4) réécrit tout le contenu de la page en un seul flux, et la marque y disparaîtrait (constaté) : `redact()` sort les calques du contenu avant, puis les remet à leur place. Le texte d'un en-tête ne se modifie donc pas avec « Modifier le contenu ».
+  - Le caviardage ne garde dans les ressources de la page que ce que le reste du contenu utilise : les ressources des calques (`EdH<n>`, `EdW<n>`) sont remises après (constaté : la police de l'en-tête disparaissait).
+  - « Changer la taille » laisse les calques en flux à part, aux deux bouts du contenu, chacun réécrit avec la transformation (`scaleContent`) : dans l'enveloppe, un caviardage les en aurait sortis (revue de sécurité).
+  - ⚠️ Un calque échappe donc à `redact()`. Les vérifications de l'édition du texte et des images refusent alors l'opération ; le caviardage de sécurité (T8) ne devra pas sortir les calques.
+- **Texte** : Helvetica non embarquée, encodée en WinAnsi (un caractère hors de cet encodage devient « ? »), écrite en hexadécimal ; les nombres passent par `num()` (jamais d'exposant), les noms de ressources sont `EdH<n>` et `EdW<n>`. Le texte est droit dans le repère affiché, quelle que soit la rotation de la page ; trop large, il rapetisse pour tenir entre les marges.
+- **En-têtes et pieds de page** : six emplacements (haut et bas, à gauche, au centre, à droite), avec `{page}`, `{pages}`, `{bates}`, `{date}`, `{title}`. Les numéros comptent les pages choisies, dans l'ordre, à partir du premier numéro donné ; Bates : préfixe, premier numéro, nombre de chiffres, suffixe. Le texte d'un emplacement est calculé par `headerText` (`utils/pageSetup.js`), le même pour l'aperçu et pour le PDF.
+- **Filigrane** : un texte au centre de chaque page, en diagonale (celle de la page) ou horizontal, couleur, opacité (ExtGState `ca`), taille donnée ou ajustée à 80 % de la page, devant le contenu ou derrière (une image pleine page, un scan le cachent alors).
+
+### Serveur (lot Bates)
+
+- `POST /api/v1/documents/bates` (`{ documentIds, slot, prefix, suffix, start, digits, fontSize, margin }`) : 1 à 50 documents différents, dans l'ordre, `PDF_MAX_PAGES` pages en tout ; un document protégé ou un lot trop long est refusé (422) avant toute écriture.
+- Quand les pages partagent leurs ressources (cas courant), la police est ajoutée une seule fois au dictionnaire partagé ; le contenu d'origine n'est enveloppé (`q` … `Q`, marque `/EditpdfWrap` vérifiée sur le contenu des flux) qu'une fois, même après plusieurs numérotations.
+- `services/pdfMarks.js` écrit le même calque `/Header` que la visionneuse (code recopié, CommonJS). La numérotation remplace donc les en-têtes posés par editpdf, et la visionneuse retire ou remplace ceux du serveur.
+- Les documents sont traités l'un après l'autre sous `writeQueue`. Chacun reçoit une révision d'origine `bates`, son fichier est réécrit en entier (`garbage=compact,compress`). Une erreur en cours de route laisse numérotés ceux déjà faits (`data.numberedIds`).
+
 ## Conséquences
 
 - Les modifications de pages se combinent avec les annotations et l'édition du contenu, dans un seul historique et un seul enregistrement.
@@ -77,3 +110,8 @@ Choix de Grégory (2026-10-29) :
 - La fusion côté serveur est synchrone (MuPDF), comme l'import : même piste que « MuPDF synchrone » (CLAUDE.md, points ouverts).
 - Le sommaire d'une fusion ne reprend pas celui des documents fusionnés : une entrée par document seulement.
 - **Pas un caviardage** : une page supprimée reste dans les révisions précédentes et dans l'original (la barre le dit en infobulle). Extraire ou scinder un document protégé, ou insérer les pages d'un PDF protégé dans un document qui ne l'est pas, donne un contenu non protégé : les dialogues le disent.
+- **T5b** : recadrer ne retire rien du fichier (le contenu caché par la CropBox y reste, comme dans tout lecteur PDF) ; ce n'est pas un caviardage.
+- Les en-têtes et le filigrane déjà posés changent d'échelle avec la page (« Changer la taille ») : il faut les poser après. Le texte d'un calque ne se modifie qu'en le reposant (dialogue), pas avec « Modifier le contenu ».
+- Les en-têtes ne sont pas renumérotés tout seuls après un réordonnancement : on les repose.
+- Le code des en-têtes existe deux fois (navigateur et serveur) : une modification de l'un doit être reportée dans l'autre.
+- La numérotation d'un lot est synchrone côté serveur (MuPDF), comme la fusion.

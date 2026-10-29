@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { bookmarksAPI, revisionsAPI } from '../utils/api';
 import {
@@ -12,6 +12,17 @@ import {
 	revisionsQueryKey,
 } from '../utils/queryClient';
 import { replaceCachedDocument } from './useDocuments';
+
+// Actions de mise en page (T5b) : celles de pdfEngine, du même nom.
+const PAGE_SETUP_ACTIONS = [
+	'cropPages',
+	'uncropPages',
+	'cropPagesToContent',
+	'resizePages',
+	'addHeaders',
+	'addWatermark',
+	'removePageLayer',
+];
 
 function _initial(pdf) {
 	return {
@@ -68,7 +79,10 @@ export function isSaveConflict(error) {
 // addText(index, params) (texte du contenu, T4a), deleteImage, moveImage,
 // replaceImage, addImage (index, params) (images du contenu, T4b),
 // movePages, rotatePages, deletePages, duplicatePages, insertBlankPage,
-// insertPages et `layout` (pages, T5a), undo(),
+// insertPages et `layout` (pages, T5a), cropPages, uncropPages,
+// cropPagesToContent, resizePages, addHeaders, addWatermark,
+// removePageLayer (mise en page, T5b ; mêmes paramètres que pdfEngine),
+// undo(),
 // redo(), save,
 // discard() } ;
 // `save` est une mutation : save.mutate({ force }) (force : sans contrôle
@@ -275,6 +289,18 @@ export function useAnnotationEditor({ document, pdf, revision, author }) {
 		[isLocked, pdf],
 	);
 
+	// Mise en page (T5b) : comme l'organisation des pages.
+	const pageSetup = useMemo(
+		() =>
+			Object.fromEntries(
+				PAGE_SETUP_ACTIONS.map((name) => [
+					name,
+					(...args) => (isLocked ? null : run(() => pdf[name](...args))),
+				]),
+			),
+		[isLocked, run, pdf],
+	);
+
 	const undo = useCallback(
 		() => (isLocked ? null : run(() => pdf.undo())),
 		[isLocked, run, pdf],
@@ -331,6 +357,7 @@ export function useAnnotationEditor({ document, pdf, revision, author }) {
 		duplicatePages,
 		insertBlankPage,
 		insertPages,
+		...pageSetup,
 		// Disposition des pages réorganisées (null : celle du PDF ouvert).
 		layout: current.layout,
 		undo,

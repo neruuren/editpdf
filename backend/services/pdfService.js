@@ -3,6 +3,7 @@
  * Le reste du backend ne fait jamais `import('mupdf')` lui-même.
  */
 const ErrorResponse = require('../utils/errorResponse');
+const pdfMarks = require('./pdfMarks');
 
 // La norme tolère quelques octets avant l'en-tête : on le cherche dans le
 // premier kilo-octet, comme les lecteurs PDF courants.
@@ -384,6 +385,45 @@ async function mergePdfs(sources, { title, maxPages = Infinity }) {
 	}
 }
 
+// 🔹 Pose les en-têtes `spec` (validés par l'appelant, voir pdfMarks) sur
+// toutes les pages du PDF `data`, à la place de ceux qu'editpdf y avait
+// mis. Renvoie { data (Buffer, PDF réécrit en entier), pageCount }. Un PDF
+// protégé est refusé (422).
+// ⚠️ Synchrone, comme inspectPdf : la boucle d'événements attend.
+async function addPdfHeaders(data, spec, values) {
+	const mupdf = await loadMupdf();
+	if (!hasPdfSignature(data)) {
+		throw new ErrorResponse('Ce fichier n’est pas un PDF', 422);
+	}
+	let document;
+	try {
+		document = mupdf.Document.openDocument(data, 'application/pdf');
+	} catch {
+		throw new ErrorResponse('PDF illisible', 422);
+	}
+	try {
+		if (document.needsPassword()) {
+			throw new ErrorResponse(
+				'Un document protégé par mot de passe ne se numérote pas',
+				422,
+			);
+		}
+		const pdf = document.asPDF?.() ?? document;
+		pdfMarks.addHeaders(mupdf, pdf, spec, values);
+		return {
+			data: Buffer.from(
+				pdf.saveToBuffer('garbage=compact,compress').asUint8Array(),
+			),
+			pageCount: pdf.countPages(),
+		};
+	} catch (error) {
+		if (error instanceof ErrorResponse) throw error;
+		throw new ErrorResponse('Numérotation impossible : PDF illisible', 422);
+	} finally {
+		document.destroy();
+	}
+}
+
 function _isStampImage(data) {
 	return (
 		data.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE) ||
@@ -459,5 +499,6 @@ module.exports = {
 	hasPdfSignature,
 	inspectPdf,
 	mergePdfs,
+	addPdfHeaders,
 	normalizeStampImage,
 };

@@ -5,6 +5,7 @@ import {
 	DOCUMENTS_QUERY_KEY,
 	SEARCH_QUERY_KEY,
 	documentQueryKey,
+	revisionsQueryKey,
 } from '../utils/queryClient';
 
 export function useDocuments() {
@@ -100,6 +101,27 @@ export function useMergeDocuments() {
 			);
 			queryClient.invalidateQueries({ queryKey: SEARCH_QUERY_KEY });
 		},
+	});
+}
+
+// Numérotation Bates d'un lot (T5b) : chaque document renvoyé (nouvelle
+// révision) remplace l'ancien.
+export function useNumberDocuments() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: documentsAPI.numberBates,
+		onSuccess: ({ documents }) => {
+			for (const document of documents) {
+				replaceCachedDocument(queryClient, document);
+				queryClient.invalidateQueries({
+					queryKey: revisionsQueryKey(document.id),
+				});
+			}
+			queryClient.invalidateQueries({ queryKey: SEARCH_QUERY_KEY });
+		},
+		// Une erreur en cours de route laisse des documents numérotés.
+		onError: () =>
+			queryClient.invalidateQueries({ queryKey: DOCUMENTS_QUERY_KEY }),
 	});
 }
 

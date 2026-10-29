@@ -431,3 +431,80 @@ describe('LibraryPage : fusionner', () => {
 		).toBeDisabled();
 	});
 });
+
+describe('LibraryPage : numérotation Bates', () => {
+	const DEVIS = doc({ id: 'devis', title: 'Devis', pageCount: 3 });
+
+	it('numérote les pages des documents choisis, à la suite', async () => {
+		let body;
+		mockFetch({
+			...BASE_ROUTES,
+			'GET /api/v1/documents': listResponse([BAIL, DEVIS]),
+			'POST /api/v1/documents/bates': (options) => {
+				body = JSON.parse(options.body);
+				return {
+					status: 200,
+					body: {
+						success: true,
+						data: {
+							documents: [
+								{ ...DEVIS, currentRevision: 1 },
+								{ ...BAIL, currentRevision: 1 },
+							],
+							first: 100,
+							last: 100 + DEVIS.pageCount + BAIL.pageCount - 1,
+						},
+					},
+				};
+			},
+		});
+		renderWithProviders(<App />, { route: '/' });
+		await screen.findByRole('link', { name: 'Devis' });
+		await userEvent.click(screen.getByRole('button', { name: 'Sélectionner' }));
+		await userEvent.click(
+			screen.getByRole('checkbox', { name: 'Sélectionner « Devis »' }),
+		);
+		await userEvent.click(
+			screen.getByRole('checkbox', {
+				name: 'Sélectionner « Contrat de bail »',
+			}),
+		);
+		await userEvent.click(
+			screen.getByRole('button', { name: 'Numéroter (Bates)…' }),
+		);
+		const dialog = screen.getByRole('dialog', { name: 'Numérotation Bates' });
+		await userEvent.type(
+			within(dialog).getByRole('textbox', { name: 'Préfixe' }),
+			'DOS-',
+		);
+		const start = within(dialog).getByRole('spinbutton', {
+			name: 'Premier numéro',
+		});
+		await userEvent.clear(start);
+		await userEvent.type(start, '100');
+		expect(within(dialog).getByText('DOS-000100')).toBeInTheDocument();
+		await userEvent.selectOptions(
+			within(dialog).getByRole('combobox', { name: 'Emplacement' }),
+			'topRight',
+		);
+		await userEvent.click(
+			within(dialog).getByRole('button', { name: 'Numéroter' }),
+		);
+		expect(
+			await within(dialog).findByText(/Pages numérotées de DOS-000100 à/),
+		).toBeInTheDocument();
+		expect(body).toEqual({
+			documentIds: ['devis', 'bail'],
+			prefix: 'DOS-',
+			suffix: '',
+			start: 100,
+			digits: 6,
+			slot: 'topRight',
+			fontSize: 9,
+		});
+		expect(within(dialog).getByRole('link', { name: 'Devis' })).toHaveAttribute(
+			'href',
+			'/documents/devis',
+		);
+	});
+});

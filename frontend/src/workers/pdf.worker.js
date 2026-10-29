@@ -50,6 +50,18 @@ import {
 	pageMap,
 	rotatePages,
 } from './pdfPages';
+import {
+	addHeaders,
+	addWatermark,
+	contentBounds,
+	cropPages,
+	cropPagesToContent,
+	hasPageSetupEdits,
+	pageLayers,
+	removePageLayer,
+	resizePages,
+	uncropPages,
+} from './pdfPageSetup';
 
 // 🔹 Worker du moteur PDF : MuPDF (WASM, ~10 Mo) n'est chargé que dans ce
 // thread, à la première ouverture d'un document. Seul utils/pdfEngine.js
@@ -354,6 +366,51 @@ const handlers = {
 		});
 		return { result: data, transfer: [data.buffer] };
 	},
+	// Mise en page (T5b) : passe par editPages (dimensions et texte des
+	// pages changent).
+	cropPages({ documentId, indexes, margins }) {
+		return editPages(documentId, (document) =>
+			cropPages(document, indexes, margins),
+		);
+	},
+	uncropPages({ documentId, indexes }) {
+		return editPages(documentId, (document) => uncropPages(document, indexes));
+	},
+	async cropPagesToContent({ documentId, indexes, padding }) {
+		const mupdf = await loadMupdf();
+		return editPages(documentId, (document) =>
+			cropPagesToContent(mupdf, document, indexes, padding),
+		);
+	},
+	async contentBounds({ documentId, index }) {
+		const mupdf = await loadMupdf();
+		return { result: contentBounds(mupdf, getDocument(documentId), index) };
+	},
+	resizePages({ documentId, indexes, size }) {
+		return editPages(documentId, (document) =>
+			resizePages(document, indexes, size),
+		);
+	},
+	async addHeaders({ documentId, indexes, spec, values }) {
+		const mupdf = await loadMupdf();
+		return editPages(documentId, (document) =>
+			addHeaders(mupdf, document, indexes, spec, values),
+		);
+	},
+	async addWatermark({ documentId, indexes, spec }) {
+		const mupdf = await loadMupdf();
+		return editPages(documentId, (document) =>
+			addWatermark(mupdf, document, indexes, spec),
+		);
+	},
+	removePageLayer({ documentId, indexes, layer }) {
+		return editPages(documentId, (document) =>
+			removePageLayer(document, indexes, layer),
+		);
+	},
+	pageLayers({ documentId }) {
+		return { result: pageLayers(getDocument(documentId)) };
+	},
 	history({ documentId, direction }) {
 		const entry = getEntry(documentId);
 		const page = stepHistory(entry.document, direction < 0 ? -1 : 1);
@@ -373,16 +430,17 @@ const handlers = {
 			},
 		};
 	},
-	// Texte ou images modifiés, pages réorganisées : le fichier est réécrit
-	// en entier (l'ancien texte, l'image retirée, une page supprimée n'y
-	// restent pas) et la révision est une « edit » ou une « organize »,
+	// Texte ou images modifiés, pages réorganisées ou mises en page : le
+	// fichier est réécrit en entier (l'ancien texte, l'image retirée, une
+	// page supprimée n'y restent pas) et la révision est une « edit » ou une
+	// « organize »,
 	// sinon une « annotate ». `pageMap` : où chaque page de départ est
 	// allée (signets à recaler).
 	save({ documentId }) {
 		const entry = getEntry(documentId);
 		const { document } = entry;
 		const isEdit = hasTextEdits(document) || hasImageEdits(document);
-		const isOrganized = hasPageEdits(document);
+		const isOrganized = hasPageEdits(document) || hasPageSetupEdits(document);
 		// Avant l'enregistrement : `garbage=compact` renumérote les objets du
 		// document ouvert (constaté), les pages ne se retrouveraient plus.
 		const map = isOrganized ? pageMap(entry.pageIds, pageIds(document)) : null;

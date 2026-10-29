@@ -70,6 +70,13 @@ export const documentsAPI = {
 			method: 'POST',
 			body: { documentIds, title },
 		}),
+	// Numérotation Bates d'un lot de documents, dans l'ordre (T5b) : une
+	// révision par document ; → { documents, first, last }.
+	numberBates: ({ documentIds, ...settings }) =>
+		request('/v1/documents/bates', {
+			method: 'POST',
+			body: { documentIds, ...settings },
+		}),
 	// Page lue dans la visionneuse (1 = première) : reprise et date d'ouverture.
 	setReading: ({ id, page, keepalive }) =>
 		request(`${documentPath(id)}/reading`, {

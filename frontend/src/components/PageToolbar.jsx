@@ -14,8 +14,10 @@ function Icon({ children }) {
 // sélectionnées, tout sélectionner ; pour la sélection : pivoter,
 // reculer, avancer, dupliquer, supprimer, extraire, scinder ; insérer
 // (page blanche, pages d'un document de la bibliothèque, d'un fichier :
-// menu) ; annuler / rétablir, enregistrer, terminer.
-// `onInsertFile(file)` : fichier PDF choisi.
+// menu) ; mise en page (T5b, menu : recadrer, taille, en-têtes,
+// filigrane) ; annuler / rétablir, enregistrer, terminer.
+// `onInsertFile(file)` : fichier PDF choisi ; `onPageSetup(kind)` : 'crop',
+// 'size', 'headers' ou 'watermark'.
 function PageToolbar({
 	selectedCount,
 	pageCount,
@@ -31,6 +33,7 @@ function PageToolbar({
 	onInsertFile,
 	onExtract,
 	onSplit,
+	onPageSetup,
 	canUndo,
 	canRedo,
 	onUndo,
@@ -42,14 +45,16 @@ function PageToolbar({
 	onClose,
 }) {
 	const menuId = useId();
+	const setupMenuId = useId();
 	const menuRef = useRef(null);
+	const setupMenuRef = useRef(null);
 	const fileRef = useRef(null);
 	const hasSelection = selectedCount > 0;
 	const isDisabled = isLocked || !hasSelection;
 
-	// Une action du menu le referme (jsdom n'a pas l'API Popover).
-	function handleMenuAction(action) {
-		menuRef.current?.hidePopover?.();
+	// Une action d'un menu le referme (jsdom n'a pas l'API Popover).
+	function handleMenuAction(action, ref = menuRef) {
+		ref.current?.hidePopover?.();
 		action();
 	}
 
@@ -216,6 +221,38 @@ function PageToolbar({
 					>
 						Scinder…
 					</button>
+					<button
+						type="button"
+						className="button button--ghost page-toolbar__button page-toolbar__menu-button"
+						popoverTarget={setupMenuId}
+						disabled={isLocked}
+					>
+						Mise en page…
+					</button>
+					<div
+						ref={setupMenuRef}
+						id={setupMenuId}
+						className="page-toolbar__menu"
+						popover="auto"
+					>
+						{[
+							['crop', 'Recadrer…'],
+							['size', 'Changer la taille…'],
+							['headers', 'En-têtes, pieds de page et numéros…'],
+							['watermark', 'Filigrane…'],
+						].map(([kind, label]) => (
+							<button
+								key={kind}
+								type="button"
+								className="button button--ghost page-toolbar__menu-item"
+								onClick={() =>
+									handleMenuAction(() => onPageSetup(kind), setupMenuRef)
+								}
+							>
+								{label}
+							</button>
+						))}
+					</div>
 				</div>
 			</div>
 

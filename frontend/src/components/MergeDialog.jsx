@@ -1,6 +1,8 @@
 import { useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMergeDocuments } from '../hooks/useDocuments';
+import { useDocumentOrder } from '../hooks/useDocumentOrder';
+import DocumentOrderList from './DocumentOrderList';
 import { formatPageCount } from '../utils/library';
 import './MergeDialog.css';
 
@@ -13,29 +15,14 @@ import './MergeDialog.css';
 // fusion.
 function MergeDialog({ ref, documents, onMerged }) {
 	const merge = useMergeDocuments();
-	const [order, setOrder] = useState(null);
 	const [created, setCreated] = useState(null);
 	const titleId = useId();
-	const ids = documents.map((document) => document.id);
-	// L'ordre choisi, tant qu'il porte sur les mêmes documents.
-	const ordered =
-		order &&
-		order.length === ids.length &&
-		order.every((id) => ids.includes(id))
-			? order.map((id) => documents.find((document) => document.id === id))
-			: documents;
+	const { ordered, move, reset } = useDocumentOrder(documents);
 	const locked = ordered.filter((document) => document.isEncrypted);
 	const pageCount = ordered.reduce(
 		(sum, document) => sum + document.pageCount,
 		0,
 	);
-
-	function move(position, step) {
-		const next = ordered.map((document) => document.id);
-		const [id] = next.splice(position, 1);
-		next.splice(position + step, 0, id);
-		setOrder(next);
-	}
 
 	function handleSubmit(event) {
 		event.preventDefault();
@@ -53,7 +40,7 @@ function MergeDialog({ ref, documents, onMerged }) {
 
 	function handleClose() {
 		setCreated(null);
-		setOrder(null);
+		reset();
 		merge.reset();
 	}
 
@@ -90,36 +77,7 @@ function MergeDialog({ ref, documents, onMerged }) {
 						{ordered.length} documents, {formatPageCount(pageCount)}, dans cet
 						ordre :
 					</p>
-					<ol className="merge-dialog__list">
-						{ordered.map((document, position) => (
-							<li key={document.id} className="merge-dialog__item">
-								<span className="merge-dialog__name">
-									{document.title}
-									{document.isEncrypted && (
-										<span className="merge-dialog__locked"> · protégé</span>
-									)}
-								</span>
-								<button
-									type="button"
-									className="button button--ghost merge-dialog__move"
-									aria-label={`Monter « ${document.title} »`}
-									onClick={() => move(position, -1)}
-									disabled={position === 0}
-								>
-									<span aria-hidden="true">↑</span>
-								</button>
-								<button
-									type="button"
-									className="button button--ghost merge-dialog__move"
-									aria-label={`Descendre « ${document.title} »`}
-									onClick={() => move(position, 1)}
-									disabled={position === ordered.length - 1}
-								>
-									<span aria-hidden="true">↓</span>
-								</button>
-							</li>
-						))}
-					</ol>
+					<DocumentOrderList documents={ordered} onMove={move} />
 					<label className="field">
 						<span className="field__label">Titre du nouveau document</span>
 						<input

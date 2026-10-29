@@ -1,0 +1,57 @@
+.bates-dialog {
+	inline-size: min(100% - 2 * var(--space-4), 36rem);
+	max-block-size: min(100% - 2 * var(--space-4), 44rem);
+	padding: var(--space-5);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-lg);
+	color: var(--color-text);
+	background: var(--color-surface);
+	box-shadow: var(--shadow);
+}
+
+.bates-dialog::backdrop {
+	background: rgb(0 0 0 / 0.45);
+}
+
+.bates-dialog__title {
+	margin-block: 0 var(--space-4);
+	font-size: var(--font-size-lg);
+}
+
+.bates-dialog__grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+	gap: var(--space-3);
+}
+
+.bates-dialog__results {
+	display: grid;
+	gap: var(--space-1);
+}
+
+.bates-dialog__note {
+	color: var(--color-text-muted);
+}
+
+.bates-dialog__error {
+	color: var(--color-danger);
+}
+
+.bates-dialog__actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: var(--space-2);
+	margin-block-start: var(--space-5);
+}
+
+/* Un champ suit la largeur de sa colonne. */
+.bates-dialog__grid > * {
+	min-inline-size: 0;
+}
+
+.bates-dialog .field__input {
+	inline-size: 100%;
+	min-inline-size: 0;
+	box-sizing: border-box;
+}

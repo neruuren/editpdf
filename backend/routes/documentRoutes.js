@@ -16,6 +16,7 @@ const {
 	setDocumentCollections,
 	setReadingPosition,
 	mergeDocuments,
+	numberDocuments,
 } = require('../controllers/documentController');
 
 router.param('id', uuidParam('Document non trouvé'));
@@ -26,6 +27,7 @@ router.use('/:id/revisions', revisionRoutes);
 router.use('/:id/bookmarks', bookmarkRoutes);
 router.route('/').get(getDocuments).post(uploadPdf, uploadDocument);
 router.post('/merge', mergeDocuments);
+router.post('/bates', numberDocuments);
 router
 	.route('/:id')
 	.get(getDocument)

@@ -2,6 +2,7 @@ const asyncHandler = require('../middleware/async');
 const ErrorResponse = require('../utils/errorResponse');
 const Document = require('../models/Document');
 const documentService = require('../services/documentService');
+const revisionService = require('../services/revisionService');
 
 // Envoie un fichier de DATA_DIR ; un fichier disparu du disque devient une 404.
 function sendStoredFile(res, next, filePath, options) {
@@ -56,6 +57,16 @@ function sendPdf(res, next, { filePath, downloadName }) {
 exports.mergeDocuments = asyncHandler(async (req, res) => {
 	const document = await documentService.mergeDocuments(req.body);
 	res.status(201).json({ success: true, data: document });
+});
+
+// @desc    Numérotation Bates d'un lot de documents ({ documentIds, slot,
+//          prefix, suffix, start, digits, fontSize, margin }) : une
+//          révision par document
+// @route   POST /api/v1/documents/bates
+// @access  Private
+exports.numberDocuments = asyncHandler(async (req, res) => {
+	const result = await revisionService.numberDocuments(req.body);
+	res.status(200).json({ success: true, data: result });
 });
 
 // @desc    Lister tous les documents (tri et filtre faits côté client)

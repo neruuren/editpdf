@@ -146,6 +146,22 @@ function _pdf(documentId, info) {
 			call('insertPages', { documentId, at, data, password }),
 		extractPages: (indexes, { title } = {}) =>
 			call('extractPages', { documentId, indexes, title }),
+		// Mise en page : même résultat que l'organisation des pages.
+		cropPages: (indexes, margins) =>
+			call('cropPages', { documentId, indexes, margins }),
+		uncropPages: (indexes) => call('uncropPages', { documentId, indexes }),
+		cropPagesToContent: (indexes, padding) =>
+			call('cropPagesToContent', { documentId, indexes, padding }),
+		getContentBounds: (index) => call('contentBounds', { documentId, index }),
+		resizePages: (indexes, size) =>
+			call('resizePages', { documentId, indexes, size }),
+		addHeaders: (indexes, spec, values) =>
+			call('addHeaders', { documentId, indexes, spec, values }),
+		addWatermark: (indexes, spec) =>
+			call('addWatermark', { documentId, indexes, spec }),
+		removePageLayer: (indexes, layer) =>
+			call('removePageLayer', { documentId, indexes, layer }),
+		getPageLayers: () => call('pageLayers', { documentId }),
 		undo: () => call('history', { documentId, direction: -1 }),
 		redo: () => call('history', { documentId, direction: 1 }),
 		save: () => call('save', { documentId }),
@@ -203,8 +219,17 @@ function _pdf(documentId, info) {
 //   PDF protégé : erreur nommée PasswordRequiredError) → { layout:
 //   { pageCount, pages, outline }, page: null, canUndo, canRedo, isDirty } ;
 //   extractPages(indexes, { title }) → Uint8Array (nouveau PDF) ;
+// - mise en page (workers/pdfPageSetup.js), même résultat : cropPages(indexes,
+//   { top, right, bottom, left }), uncropPages(indexes),
+//   cropPagesToContent(indexes, padding) (+ count), resizePages(indexes,
+//   { width, height, orientation }), addHeaders(indexes, spec, { title,
+//   date }), addWatermark(indexes, spec), removePageLayer(indexes, layer)
+//   (layer : 'Header' | 'Watermark' ; + count) ; getContentBounds(index) → [x0, y0,
+//   x1, y1] | null (ce que montre la page, repère affiché) ;
+//   getPageLayers() → { headers, watermarks } (pages qui en ont) ;
 // - save() → { data (Uint8Array : le PDF modifié, en incrémental, ou réécrit
-//   en entier si le texte, les images ou les pages ont changé), origin
+//   en entier si le texte, les images, les pages ou leur mise en page ont
+//   changé), origin
 //   ('annotate' | 'edit' | 'organize'), pageMap (pages réorganisées : pour
 //   chaque page de départ, sa nouvelle place ou -1) } ;
 // - undo(), redo() : + layout quand toutes les pages ont pu changer ;

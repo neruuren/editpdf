@@ -6,6 +6,7 @@ import ConfirmDialog from './ConfirmDialog';
 import DocumentDetails from './DocumentDetails';
 import NotePopover from './NotePopover';
 import PageDialogs from './PageDialogs';
+import PageSetupDialog from './PageSetupDialog';
 import PageToolbar from './PageToolbar';
 import PdfPageGrid from './PdfPageGrid';
 import PdfPages from './PdfPages';
@@ -121,6 +122,7 @@ function PdfViewer({ document }) {
 		isLocked: isEditLocked,
 	});
 	const pageDialogsRef = useRef(null);
+	const pageSetupRef = useRef(null);
 	const isStampTool = tools.isAnnotating && tools.tool === 'stamp';
 	const stamps = useStamps({ isEnabled: isStampTool });
 	const stampList = stamps.data ?? [];
@@ -805,6 +807,7 @@ function PdfViewer({ document }) {
 					onInsertFile={(file) => pageDialogsRef.current?.insertFile(file)}
 					onExtract={() => pageDialogsRef.current?.extract()}
 					onSplit={() => pageDialogsRef.current?.split()}
+					onPageSetup={(kind) => pageSetupRef.current?.open(kind)}
 					canUndo={editor.canUndo && !isEditLocked}
 					canRedo={editor.canRedo && !isEditLocked}
 					onUndo={tools.undo}
@@ -897,6 +900,15 @@ function PdfViewer({ document }) {
 					pdf={pdf}
 					document={document}
 					pageTools={pageTools}
+				/>
+			)}
+			{pdf && (
+				<PageSetupDialog
+					ref={pageSetupRef}
+					pdf={pdf}
+					document={document}
+					pageTools={pageTools}
+					editor={editor}
 				/>
 			)}
 			{pdf && (

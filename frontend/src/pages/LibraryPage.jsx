@@ -4,6 +4,7 @@ import CollectionsDialog from '../components/CollectionsDialog';
 import DocumentGrid from '../components/DocumentGrid';
 import DocumentTable from '../components/DocumentTable';
 import LibraryFilters from '../components/LibraryFilters';
+import BatesDialog from '../components/BatesDialog';
 import MergeDialog from '../components/MergeDialog';
 import StatusMessage from '../components/StatusMessage';
 import UploadReport from '../components/UploadReport';
@@ -32,7 +33,8 @@ const NO_DOCUMENTS = [];
 // des PDF n'importe où sur la page ; recherche (titre, auteur, sujet, nom de
 // fichier, et contenu des PDF côté serveur), filtres par collection et
 // étiquettes, tri et vue (grille ou liste) mémorisés sur l'appareil ;
-// mode « Sélectionner » pour fusionner des documents (MergeDialog).
+// mode « Sélectionner » pour fusionner des documents (MergeDialog) ou
+// numéroter leurs pages (BatesDialog).
 // Recherche et filtres sont dans l'URL (?q=…&collection=…&tag=…) : ils
 // sont retrouvés en revenant d'une fiche.
 function LibraryPage() {
@@ -54,13 +56,18 @@ function LibraryPage() {
 	const fileInputRef = useRef(null);
 	const collectionsDialogRef = useRef(null);
 	const mergeDialogRef = useRef(null);
-	// Mode sélection (fusion, T5a) : ids dans l'ordre où ils ont été cochés,
-	// null hors de ce mode.
+	const batesDialogRef = useRef(null);
+	// Mode sélection (fusion, numérotation Bates) : ids dans l'ordre où ils
+	// ont été cochés, null hors de ce mode.
 	const [selectedIds, setSelectedIds] = useState(null);
 	const filterId = useId();
 	const sortId = useId();
 
 	const allDocuments = documents.data ?? NO_DOCUMENTS;
+	// Documents cochés, dans l'ordre où ils l'ont été.
+	const selectedDocuments = (selectedIds ?? []).flatMap(
+		(id) => allDocuments.find((document) => document.id === id) ?? [],
+	);
 	const collectionList = collections.data ?? NO_DOCUMENTS;
 	const tags = useMemo(() => collectTags(allDocuments), [allDocuments]);
 	const collectionCounts = useMemo(
@@ -337,7 +344,7 @@ function LibraryPage() {
 				>
 					<p className="library-page__selection-count" aria-live="polite">
 						{selectedIds.length === 0
-							? 'Cochez les documents à fusionner'
+							? 'Cochez les documents à fusionner ou à numéroter'
 							: `${selectedIds.length} ${selectedIds.length > 1 ? 'documents sélectionnés' : 'document sélectionné'}`}
 					</p>
 					<button
@@ -347,6 +354,14 @@ function LibraryPage() {
 						disabled={selectedIds.length < 2}
 					>
 						Fusionner…
+					</button>
+					<button
+						type="button"
+						className="button button--ghost"
+						onClick={() => batesDialogRef.current?.showModal()}
+						disabled={selectedIds.length < 1}
+					>
+						Numéroter (Bates)…
 					</button>
 					<button
 						type="button"
@@ -362,10 +377,14 @@ function LibraryPage() {
 
 			<MergeDialog
 				ref={mergeDialogRef}
-				documents={(selectedIds ?? []).flatMap(
-					(id) => allDocuments.find((document) => document.id === id) ?? [],
-				)}
+				documents={selectedDocuments}
 				onMerged={() => setSelectedIds(null)}
+			/>
+
+			<BatesDialog
+				ref={batesDialogRef}
+				documents={selectedDocuments}
+				onNumbered={() => setSelectedIds(null)}
 			/>
 
 			<CollectionsDialog

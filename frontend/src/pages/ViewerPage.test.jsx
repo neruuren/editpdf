@@ -299,6 +299,37 @@ function fakeAnnotations() {
 			return { count: 2, ...history(null), layout: layout(pageCount) };
 		}),
 		extractPages: vi.fn(async () => new Uint8Array([0x25, 0x50, 0x44, 0x46])),
+		// Mise en page (T5b).
+		cropPages: vi.fn(async () => {
+			position += 1;
+			return { ...history(null), layout: layout(pageCount) };
+		}),
+		uncropPages: vi.fn(async () => {
+			position += 1;
+			return { ...history(null), layout: layout(pageCount) };
+		}),
+		cropPagesToContent: vi.fn(async () => {
+			position += 1;
+			return { count: 1, ...history(null), layout: layout(pageCount) };
+		}),
+		getContentBounds: vi.fn(async () => [50, 60, 500, 780]),
+		resizePages: vi.fn(async () => {
+			position += 1;
+			return { ...history(null), layout: layout(pageCount) };
+		}),
+		addHeaders: vi.fn(async () => {
+			position += 1;
+			return { ...history(null), layout: layout(pageCount) };
+		}),
+		addWatermark: vi.fn(async () => {
+			position += 1;
+			return { ...history(null), layout: layout(pageCount) };
+		}),
+		removePageLayer: vi.fn(async () => {
+			position += 1;
+			return { count: 1, ...history(null), layout: layout(pageCount) };
+		}),
+		getPageLayers: vi.fn(async () => ({ headers: 0, watermarks: 0 })),
 		// Images du contenu (T4b) : une photo sur chaque page.
 		getImages: vi.fn(async (index) => imageList(index)),
 		moveImage: vi.fn(async (index, { target, rect }) => {
@@ -1414,5 +1445,182 @@ describe('ViewerPage : organiser les pages', () => {
 			within(toolbar).getByRole('button', { name: 'Enregistrer' }),
 		);
 		await waitFor(() => expect(remapped).toEqual({ pageMap: [1, 0, 2] }));
+	});
+});
+
+describe('ViewerPage : mise en page', () => {
+	async function openSetup(kind) {
+		const opened = await openViewer({ ...RAPPORT, lastPage: null });
+		await userEvent.click(
+			screen.getByRole('button', { name: 'Organiser les pages' }),
+		);
+		const grid = screen.getByRole('listbox', { name: 'Pages du document' });
+		const toolbar = screen.getByRole('toolbar', {
+			name: 'Organisation des pages',
+		});
+		return { ...opened, grid, toolbar, kind };
+	}
+
+	async function openDialog(toolbar, item, name) {
+		await userEvent.click(
+			within(toolbar).getByRole('button', { name: item, hidden: true }),
+		);
+		return screen.getByRole('dialog', { name });
+	}
+
+	it('recadre les pages sélectionnées avec les marges saisies', async () => {
+		const { pdf, grid, toolbar } = await openSetup();
+		await userEvent.click(within(grid).getByRole('option', { name: 'Page 2' }));
+		const dialog = await openDialog(toolbar, 'Recadrer…', 'Recadrer les pages');
+		expect(
+			within(dialog).getByRole('radio', { name: /Sélectionnées \(2\)/ }),
+		).toBeChecked();
+		const top = within(dialog).getByRole('spinbutton', { name: 'Haut (mm)' });
+		await userEvent.clear(top);
+		await userEvent.type(top, '10');
+		await userEvent.click(
+			within(dialog).getByRole('button', { name: 'Recadrer' }),
+		);
+		await waitFor(() => expect(pdf.cropPages).toHaveBeenCalled());
+		const [pages, margins] = pdf.cropPages.mock.calls[0];
+		expect(pages).toEqual([1]);
+		expect(margins.top).toBeCloseTo(28.35, 1);
+		expect(margins.bottom).toBe(0);
+	});
+
+	it('recadre chaque page sur son contenu, ou la remet entière', async () => {
+		const { pdf, toolbar } = await openSetup();
+		let dialog = await openDialog(toolbar, 'Recadrer…', 'Recadrer les pages');
+		await userEvent.click(
+			within(dialog).getByRole('radio', {
+				name: 'Marges blanches de chaque page',
+			}),
+		);
+		await waitFor(() => expect(pdf.getContentBounds).toHaveBeenCalledWith(0));
+		await userEvent.click(
+			within(dialog).getByRole('button', { name: 'Recadrer' }),
+		);
+		await waitFor(() =>
+			expect(pdf.cropPagesToContent).toHaveBeenCalledWith(
+				[0, 1, 2],
+				expect.closeTo(8.5, 1),
+			),
+		);
+		dialog = await openDialog(toolbar, 'Recadrer…', 'Recadrer les pages');
+		await userEvent.click(
+			within(dialog).getByRole('button', { name: 'Pages entières' }),
+		);
+		await waitFor(() =>
+			expect(pdf.uncropPages).toHaveBeenCalledWith([0, 1, 2]),
+		);
+	});
+
+	it('change la taille des pages', async () => {
+		const { pdf, toolbar } = await openSetup();
+		const dialog = await openDialog(
+			toolbar,
+			'Changer la taille…',
+			'Changer la taille des pages',
+		);
+		await userEvent.selectOptions(
+			within(dialog).getByRole('combobox', { name: 'Nouvelle taille' }),
+			'letter',
+		);
+		await userEvent.click(
+			within(dialog).getByRole('radio', { name: 'Paysage' }),
+		);
+		await userEvent.click(
+			within(dialog).getByRole('button', { name: 'Changer la taille' }),
+		);
+		await waitFor(() =>
+			expect(pdf.resizePages).toHaveBeenCalledWith([0, 1, 2], {
+				width: 612,
+				height: 792,
+				orientation: 'landscape',
+			}),
+		);
+	});
+
+	it('pose des en-têtes avec numéros Bates, montrés dans l’aperçu', async () => {
+		const { pdf, toolbar } = await openSetup();
+		pdf.getPageLayers.mockResolvedValue({ headers: 3, watermarks: 0 });
+		const dialog = await openDialog(
+			toolbar,
+			'En-têtes, pieds de page et numéros…',
+			'En-têtes, pieds de page et numéros',
+		);
+		// Réglage par défaut : « Page {page} / {pages} » en bas à droite.
+		expect(within(dialog).getByText('Page 1 / 3')).toBeInTheDocument();
+		const slot = within(dialog).getByRole('textbox', {
+			name: 'En bas à gauche',
+		});
+		await userEvent.click(slot);
+		await userEvent.click(
+			within(dialog).getByRole('button', { name: 'Insérer numéro Bates' }),
+		);
+		expect(slot).toHaveValue('{bates}');
+		const prefix = within(dialog).getByRole('textbox', { name: 'Préfixe' });
+		await userEvent.type(prefix, 'DOS-');
+		expect(within(dialog).getByText('DOS-000001')).toBeInTheDocument();
+		expect(
+			await within(dialog).findByRole('button', {
+				name: 'Retirer les en-têtes',
+			}),
+		).toBeInTheDocument();
+		await userEvent.click(
+			within(dialog).getByRole('button', { name: 'Poser' }),
+		);
+		await waitFor(() => expect(pdf.addHeaders).toHaveBeenCalled());
+		const [pages, spec, values] = pdf.addHeaders.mock.calls[0];
+		expect(pages).toEqual([0, 1, 2]);
+		expect(spec.slots).toMatchObject({
+			bottomLeft: '{bates}',
+			bottomRight: 'Page {page} / {pages}',
+		});
+		expect(spec.bates).toEqual({
+			prefix: 'DOS-',
+			suffix: '',
+			start: 1,
+			digits: 6,
+		});
+		expect(values.title).toBe('Rapport annuel');
+		// Réglages gardés sur l'appareil.
+		expect(
+			JSON.parse(localStorage.getItem('editpdf-page-headers')).bates.prefix,
+		).toBe('DOS-');
+	});
+
+	it('pose et retire un filigrane', async () => {
+		const { pdf, toolbar } = await openSetup();
+		pdf.getPageLayers.mockResolvedValue({ headers: 0, watermarks: 3 });
+		let dialog = await openDialog(toolbar, 'Filigrane…', 'Filigrane');
+		const text = within(dialog).getByRole('textbox', { name: 'Texte' });
+		await userEvent.clear(text);
+		await userEvent.type(text, 'COPIE');
+		await userEvent.click(
+			within(dialog).getByRole('checkbox', { name: /Derrière le contenu/ }),
+		);
+		await userEvent.click(
+			within(dialog).getByRole('button', { name: 'Poser' }),
+		);
+		await waitFor(() =>
+			expect(pdf.addWatermark).toHaveBeenCalledWith([0, 1, 2], {
+				text: 'COPIE',
+				fontSize: null,
+				color: '#c62828',
+				opacity: 0.25,
+				angle: 'diagonal',
+				behind: true,
+			}),
+		);
+		dialog = await openDialog(toolbar, 'Filigrane…', 'Filigrane');
+		await userEvent.click(
+			await within(dialog).findByRole('button', {
+				name: 'Retirer le filigrane',
+			}),
+		);
+		await waitFor(() =>
+			expect(pdf.removePageLayer).toHaveBeenCalledWith([0, 1, 2], 'Watermark'),
+		);
 	});
 });

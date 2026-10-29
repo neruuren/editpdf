@@ -15,6 +15,7 @@
 // « <page>:<libellé> » : annuler et rétablir savent ainsi quelle page
 // redessiner. Un PDF est toujours hostile : ce qu'il contient est lu borné.
 
+import { winAnsi } from './pdfContent';
 import { textRects } from './pdfRenderer';
 
 const MARKUP_TYPES = new Set([
@@ -625,47 +626,6 @@ const CREATE_LABELS = {
 	Stamp: 'Tampon',
 };
 
-// Encodage WinAnsi (celui de la police standard du tampon) des caractères
-// hors ASCII et Latin-1 ; les autres caractères deviennent « ? ».
-const WIN_ANSI_EXTRA = new Map([
-	['€', 0x80],
-	['‚', 0x82],
-	['ƒ', 0x83],
-	['„', 0x84],
-	['…', 0x85],
-	['†', 0x86],
-	['‡', 0x87],
-	['ˆ', 0x88],
-	['‰', 0x89],
-	['Š', 0x8a],
-	['‹', 0x8b],
-	['Œ', 0x8c],
-	['Ž', 0x8e],
-	['‘', 0x91],
-	['’', 0x92],
-	['“', 0x93],
-	['”', 0x94],
-	['•', 0x95],
-	['–', 0x96],
-	['—', 0x97],
-	['˜', 0x98],
-	['™', 0x99],
-	['š', 0x9a],
-	['›', 0x9b],
-	['œ', 0x9c],
-	['ž', 0x9e],
-	['Ÿ', 0x9f],
-]);
-
-function _winAnsi(char) {
-	const code = char.codePointAt(0);
-	if ((code >= 0x20 && code <= 0x7e) || (code >= 0xa0 && code <= 0xff)) {
-		return { code, char };
-	}
-	const extra = WIN_ANSI_EXTRA.get(char);
-	return extra ? { code: extra, char } : { code: 0x3f, char: '?' };
-}
-
 // Tampon texte : libellé en gras (20 pt), date en dessous (10 pt), dans un
 // cadre aux coins arrondis. En points.
 const STAMP_FONT = 'Helvetica-Bold';
@@ -694,7 +654,7 @@ function _measureStamp(mupdf, lines) {
 	const font = new mupdf.Font(STAMP_FONT);
 	const measured = lines.map((line, i) => {
 		const size = STAMP_SIZES[i];
-		const chars = [...line].map(_winAnsi);
+		const chars = [...line].map(winAnsi);
 		const width = chars.reduce(
 			(sum, { char }) =>
 				sum +

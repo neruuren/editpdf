@@ -2,7 +2,7 @@
 
 Objectif : couvrir l'essentiel de ce que font les éditeurs PDF payants, pour un seul utilisateur. Les tranches sont livrées dans l'ordre ; chacune laisse l'application utilisable. Cocher une case **dans le même changement** que le code (règle de maintenance de [CLAUDE.md](../CLAUDE.md)).
 
-Priorités de Grégory : **T2-T3 (lire + annoter)**, puis **T4 (éditer le contenu existant)** : T4a (le texte) et T4b (les images) faits ; **T5a** (organisation des pages) fait, T5b à venir.
+Priorités de Grégory : **T2-T3 (lire + annoter)**, puis **T4 (éditer le contenu existant)** : T4a (le texte) et T4b (les images) faits ; **T5** (organisation et mise en page des pages) fait.
 
 Légende : `[x]` fait, `[ ]` à faire. Côté : **N** = navigateur (MuPDF.js), **S** = serveur (MuPDF Node ou outils système).
 
@@ -117,7 +117,9 @@ Livrée en deux temps : **T5a** (l'ordre et le nombre des pages) puis **T5b** (r
 
 ### T5b
 
-- [ ] Recadrer, redimensionner les pages ; numérotation (Bates), en-têtes / pieds de page, filigrane (N/S)
+- [x] Mise en page dans le mode « Pages », avec aperçu, sur les pages sélectionnées ou toutes : recadrer (cadre, marges en mm, marges blanches), changer la taille (contenu mis à l'échelle) (N)
+- [x] En-têtes et pieds de page (numéro de page, nombre de pages, date, titre, numéro Bates), filigrane texte ; calques remplaçables (N)
+- [x] Numérotation Bates d'un lot de documents de la bibliothèque, à la suite (S)
 
 ## T6 : formulaires et signature
 
