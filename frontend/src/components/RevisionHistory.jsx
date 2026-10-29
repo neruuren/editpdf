@@ -24,6 +24,7 @@ function describeOrigin(revision) {
 	}
 	if (revision.origin === 'upload') return 'version envoyée';
 	if (revision.origin === 'annotate') return 'annotations';
+	if (revision.origin === 'edit') return 'texte modifié';
 	return revision.origin;
 }
 

@@ -90,7 +90,8 @@ export const documentsAPI = {
 // Les mutations renvoient le document mis à jour (sauf remove).
 export const revisionsAPI = {
 	list: (id) => request(`${documentPath(id)}/revisions`),
-	// `origin` 'annotate' : enregistrement de la visionneuse ; `baseRevision` :
+	// `origin` 'annotate' ou 'edit' (texte modifié) : enregistrement de la
+	// visionneuse ; `baseRevision` :
 	// révision ouverte au début des modifications (409 si ce n'est plus la
 	// courante, avec data.currentRevision).
 	upload: ({ id, file, origin, baseRevision }) => {

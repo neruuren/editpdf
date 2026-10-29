@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import FreeTextEditor from './FreeTextEditor';
 import PdfAnnotationLayer from './PdfAnnotationLayer';
 import PdfDrawingLayer from './PdfDrawingLayer';
+import PdfTextEditLayer from './PdfTextEditLayer';
 import PdfTextLayer from './PdfTextLayer';
 import { annotationAt, pagePointAt } from '../utils/annotations';
 import './PdfPageView.css';
@@ -27,7 +28,8 @@ const PLACING_TOOLS = new Set(['note', 'text', 'stamp']);
 // (dessin, gomme, forme), le calque de tracé ; sauf `withTextLayer={false}`
 // (présentation). `annotating` (PdfViewer) : version de la page (elle est
 // redessinée à chaque modification), mode et outil d'annotation, styles,
-// annotation sélectionnée, éditeur de texte libre et leurs actions.
+// annotation sélectionnée, éditeur de texte libre et leurs actions ;
+// `annotating.textEditing` : mode « Modifier » (calque PdfTextEditLayer).
 function PdfPageView({
 	pdf,
 	index,
@@ -125,6 +127,7 @@ function PdfPageView({
 
 	const textEditor =
 		annotating?.textEditor?.page === index ? annotating.textEditor : null;
+	const textEditing = withAnnotations ? annotating.textEditing : null;
 	const isDrawing =
 		withAnnotations &&
 		annotating.isAnnotating &&
@@ -157,6 +160,7 @@ function PdfPageView({
 					scale={scale}
 					rotation={rotation}
 					isReady={isReady}
+					version={version}
 					highlights={highlights}
 				/>
 			)}
@@ -185,6 +189,36 @@ function PdfPageView({
 						/>
 					)}
 				</PdfAnnotationLayer>
+			)}
+			{isReady && textEditing?.isEditingText && (
+				<PdfTextEditLayer
+					pdf={pdf}
+					index={index}
+					page={page}
+					scale={scale}
+					rotation={rotation}
+					version={version}
+					tool={textEditing.tool}
+					session={
+						textEditing.session?.page === index ? textEditing.session : null
+					}
+					isLocked={annotating.isLocked}
+					getPoint={(event) => {
+						const { x, y } = pagePointAt(
+							event,
+							elementRef.current,
+							page,
+							scale,
+							rotation,
+						);
+						return [x, y];
+					}}
+					onEdit={(block, line) => textEditing.onEdit(index, block, line)}
+					onAdd={(point) => textEditing.onAdd(index, point)}
+					onExtendToBlock={textEditing.onExtendToBlock}
+					onCommit={textEditing.onCommit}
+					onCancel={textEditing.onCancel}
+				/>
 			)}
 			{isDrawing && (
 				<PdfDrawingLayer

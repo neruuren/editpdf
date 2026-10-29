@@ -1421,11 +1421,14 @@ export function enableHistory(document) {
 // 🔹 Le PDF modifié (Uint8Array), en enregistrement incrémental : les
 // modifications s'ajoutent à la fin du fichier ouvert, sans toucher au
 // reste (une signature numérique reste vérifiable, le chiffrement est
-// gardé). Un fichier que MuPDF a dû réparer est réécrit en entier.
-export function saveDocument(document) {
+// gardé). Un fichier que MuPDF a dû réparer est réécrit en entier, comme
+// avec `rewrite` (texte modifié : l'ancien texte ne doit pas rester dans le
+// fichier, `garbage` retire les objets qui ne servent plus ; `compress`
+// compresse les flux qui ne le sont pas encore, dont les polices ajoutées).
+export function saveDocument(document, { rewrite = false } = {}) {
 	// `encrypt=keep` : réécrit en entier, un PDF protégé le reste aussi.
-	const options = document.canBeSavedIncrementally()
-		? 'incremental'
-		: 'encrypt=keep';
+	let options = 'encrypt=keep';
+	if (rewrite) options = 'garbage=compact,compress,encrypt=keep';
+	else if (document.canBeSavedIncrementally()) options = 'incremental';
 	return document.saveToBuffer(options).asUint8Array().slice();
 }

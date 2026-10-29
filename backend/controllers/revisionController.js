@@ -16,7 +16,7 @@ exports.getRevisions = (req, res) => {
 };
 
 // @desc    Envoyer une nouvelle version du document (multipart, champ « file » ;
-//          facultatifs : « origin » upload | annotate, « baseRevision »)
+//          facultatifs : « origin » upload | annotate | edit, « baseRevision »)
 // @route   POST /api/v1/documents/:id/revisions
 // @access  Private
 exports.uploadRevision = asyncHandler(async (req, res, next) => {

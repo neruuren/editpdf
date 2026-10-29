@@ -1,0 +1,39 @@
+/* Calque dans le repère de la page non tournée, comme le calque de texte :
+   la rotation d'affichage est une transformation CSS. Il ne reçoit le
+   pointeur que pour ajouter du texte ; sinon seules ses lignes le
+   reçoivent (la sélection du texte reste possible entre elles). */
+.pdf-text-edit-layer {
+	position: absolute;
+	inset-block-start: 0;
+	inset-inline-start: 0;
+	overflow: clip;
+	transform-origin: 0 0;
+	direction: ltr;
+	pointer-events: none;
+}
+
+.pdf-text-edit-layer[data-tool='add'] {
+	pointer-events: auto;
+	cursor: text;
+}
+
+.pdf-text-edit-layer__line {
+	position: absolute;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: 2px;
+	background: transparent;
+	cursor: text;
+	pointer-events: auto;
+}
+
+.pdf-text-edit-layer__line:hover {
+	outline: 1px dashed #2f6fdb;
+	background: color-mix(in srgb, #2f6fdb 8%, transparent);
+}
+
+.pdf-text-edit-layer__line:focus-visible {
+	outline: 2px solid #2f6fdb;
+	outline-offset: 1px;
+}

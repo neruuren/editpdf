@@ -42,6 +42,7 @@ function PdfTextLayer({
 	scale,
 	rotation,
 	isReady,
+	version,
 	highlights,
 }) {
 	const [lines, setLines] = useState(null);
@@ -54,7 +55,8 @@ function PdfTextLayer({
 			.then((result) => setLines(result.map(withStretch)))
 			.catch(() => {});
 		return () => controller.abort();
-	}, [pdf, index, isReady]);
+		// `version` : le texte de la page a pu changer (T4a).
+	}, [pdf, index, isReady, version]);
 
 	return (
 		<div

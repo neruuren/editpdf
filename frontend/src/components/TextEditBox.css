@@ -1,0 +1,20 @@
+/* Page blanche : la saisie cache le texte d'origine pendant sa
+   modification. Elle s'agrandit avec le texte. */
+.text-edit-box {
+	position: absolute;
+	box-sizing: content-box;
+	margin: 0;
+	padding: 0 2px;
+	border: 1px dashed #2f6fdb;
+	border-radius: 2px;
+	background: #ffffff;
+	line-height: 1.2;
+	overflow: hidden;
+	resize: none;
+	field-sizing: content;
+	pointer-events: auto;
+}
+
+.text-edit-box:focus-visible {
+	outline-offset: 0;
+}

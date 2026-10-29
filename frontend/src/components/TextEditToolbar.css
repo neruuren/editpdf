@@ -1,0 +1,105 @@
+/* Comme la barre d'annotation : une ligne dont les réglages défilent sur
+   un écran étroit, la fin (annuler, enregistrer, terminer) reste visible. */
+.text-edit-toolbar {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	padding: var(--space-1) var(--space-2);
+	padding-inline: max(var(--space-2), env(safe-area-inset-left))
+		max(var(--space-2), env(safe-area-inset-right));
+	border-block-end: 1px solid var(--color-border);
+	background: var(--color-surface);
+}
+
+.text-edit-toolbar__main {
+	display: flex;
+	flex: 1 1 auto;
+	align-items: center;
+	gap: var(--space-1) var(--space-3);
+	min-inline-size: 0;
+	overflow-x: auto;
+	scrollbar-width: thin;
+}
+
+/* Téléphone : en bas de l'écran, à portée du pouce. */
+@media (width < 48rem) {
+	.text-edit-toolbar {
+		order: 10;
+		padding-block-end: max(var(--space-1), env(safe-area-inset-bottom));
+		border-block-start: 1px solid var(--color-border);
+		border-block-end: 0;
+	}
+}
+
+.text-edit-toolbar__group {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: var(--space-1);
+}
+
+.text-edit-toolbar__end {
+	flex: none;
+}
+
+.text-edit-toolbar__button {
+	flex: none;
+	gap: var(--space-1);
+	min-inline-size: var(--tap-size);
+	padding-inline: var(--space-2);
+	font-weight: 400;
+	white-space: nowrap;
+}
+
+.text-edit-toolbar__button[aria-pressed='true'] {
+	color: var(--color-primary-contrast);
+	background: var(--color-primary);
+}
+
+.text-edit-toolbar__bold {
+	font-weight: 700;
+}
+
+.text-edit-toolbar__italic {
+	font-family: Georgia, serif;
+	font-style: italic;
+}
+
+.text-edit-toolbar__save {
+	flex: none;
+	white-space: nowrap;
+}
+
+.text-edit-toolbar__select {
+	inline-size: auto;
+	max-inline-size: 16rem;
+}
+
+.text-edit-toolbar__svg {
+	inline-size: 1.25rem;
+	block-size: 1.25rem;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+/* Écran moyen : les outils n'ont plus que leur icône (le libellé reste
+   pour les lecteurs d'écran et en infobulle). */
+@media (width < 90rem) {
+	.text-edit-toolbar__label {
+		position: absolute;
+		inline-size: 1px;
+		block-size: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
+}
+
+@media (width < 40rem) {
+	.text-edit-toolbar__save {
+		padding-inline: var(--space-2);
+	}
+}

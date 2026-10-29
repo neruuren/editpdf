@@ -200,7 +200,62 @@ function fakeAnnotations() {
 			position += 1;
 			return history(null);
 		}),
-		save: vi.fn(async () => new Uint8Array([0x25, 0x50, 0x44, 0x46])),
+		// Texte du contenu (T4a) : un bloc de deux lignes sur chaque page.
+		getTextBlocks: vi.fn(async () => [
+			{
+				index: 0,
+				rect: [72, 60, 300, 100],
+				lines: [
+					{
+						index: 0,
+						text: 'Première ligne',
+						rect: [72, 60, 200, 74],
+						baseline: 71,
+						size: 12,
+						color: '#000000',
+						font: {
+							name: 'Arial',
+							family: 'sans',
+							bold: false,
+							italic: false,
+							isReusable: true,
+						},
+						isEditable: true,
+					},
+					{
+						index: 1,
+						text: 'Seconde ligne',
+						rect: [72, 76, 190, 90],
+						baseline: 87,
+						size: 12,
+						color: '#000000',
+						font: {
+							name: 'Arial',
+							family: 'sans',
+							bold: false,
+							italic: false,
+							isReusable: false,
+						},
+						isEditable: true,
+					},
+				],
+			},
+		]),
+		replaceText: vi.fn(async (index) => {
+			position += 1;
+			return { fontReplaced: null, ...history(index) };
+		}),
+		addText: vi.fn(async (index) => {
+			position += 1;
+			return {
+				fontReplaced: { from: 'Arial', to: 'Helvetica-Bold' },
+				...history(index),
+			};
+		}),
+		save: vi.fn(async () => ({
+			data: new Uint8Array([0x25, 0x50, 0x44, 0x46]),
+			origin: 'annotate',
+		})),
 	};
 }
 
@@ -816,7 +871,7 @@ describe('ViewerPage : annotations', () => {
 		expect(pdf.save).toHaveBeenCalled();
 		expect(body.get('origin')).toBe('annotate');
 		expect(body.get('baseRevision')).toBe('0');
-		expect(body.get('file').name).toBe('annotations.pdf');
+		expect(body.get('file').name).toBe('modifications.pdf');
 		// Le PDF enregistré est rouvert tel quel : pas de nouveau téléchargement.
 		expect(
 			fetchMock.mock.calls.filter(([url]) => url.includes('/file')),
@@ -903,5 +958,156 @@ describe('ViewerPage : annotations', () => {
 		await waitFor(() =>
 			expect(screen.queryByLabelText('Pages du document')).toBeNull(),
 		);
+	});
+});
+
+describe('ViewerPage : modifier le texte', () => {
+	async function openEditing(extra) {
+		const opened = await openViewer({ ...RAPPORT, lastPage: null }, extra);
+		const page = screen.getByRole('group', { name: 'Page 1 sur 3' });
+		await within(page).findByText('Texte de la page 1');
+		await userEvent.click(
+			screen.getByRole('button', { name: 'Modifier le texte' }),
+		);
+		const toolbar = screen.getByRole('toolbar', {
+			name: 'Modification du texte',
+		});
+		return { ...opened, page, toolbar };
+	}
+
+	it('remplace une ligne avec sa police d’origine, puis l’enregistre', async () => {
+		let body;
+		const { pdf, page, toolbar } = await openEditing({
+			'POST /api/v1/documents/rapport/revisions': (options) => {
+				body = options.body;
+				return { status: 201, body: { success: true, data: RAPPORT } };
+			},
+		});
+		pdf.save.mockResolvedValue({
+			data: new Uint8Array([0x25, 0x50, 0x44, 0x46]),
+			origin: 'edit',
+		});
+		await userEvent.click(
+			await within(page).findByRole('button', {
+				name: 'Modifier la ligne « Première ligne »',
+			}),
+		);
+		const input = within(page).getByRole('textbox', {
+			name: 'Texte de la ligne',
+		});
+		expect(
+			within(toolbar).getByRole('combobox', { name: 'Police' }),
+		).toHaveValue('original');
+		await userEvent.clear(input);
+		await userEvent.type(input, 'Ligne corrigée{Enter}');
+		await waitFor(() =>
+			expect(pdf.replaceText).toHaveBeenCalledWith(0, {
+				target: { block: 0, line: 0, text: 'Première ligne' },
+				text: 'Ligne corrigée',
+				style: {
+					font: 'original',
+					bold: false,
+					italic: false,
+					size: 12,
+					color: '#000000',
+					align: 'left',
+				},
+			}),
+		);
+		const saveButton = within(toolbar).getByRole('button', {
+			name: 'Enregistrer',
+		});
+		await waitFor(() => expect(saveButton).toBeEnabled());
+		await userEvent.click(saveButton);
+		await waitFor(() => expect(body?.get('origin')).toBe('edit'));
+	});
+
+	it('n’écrit rien si la ligne n’a pas changé', async () => {
+		const { pdf, page } = await openEditing();
+		await userEvent.click(
+			await within(page).findByRole('button', {
+				name: 'Modifier la ligne « Première ligne »',
+			}),
+		);
+		await userEvent.keyboard('{Enter}');
+		expect(
+			within(page).queryByRole('textbox', { name: 'Texte de la ligne' }),
+		).toBeNull();
+		expect(pdf.replaceText).not.toHaveBeenCalled();
+	});
+
+	it('passe de la ligne au paragraphe, avec le style changé dans la barre', async () => {
+		const { pdf, page, toolbar } = await openEditing();
+		await userEvent.click(
+			await within(page).findByRole('button', {
+				name: 'Modifier la ligne « Première ligne »',
+			}),
+		);
+		await userEvent.click(
+			within(toolbar).getByRole('button', { name: 'Paragraphe entier' }),
+		);
+		const input = within(page).getByRole('textbox', {
+			name: 'Texte du paragraphe',
+		});
+		expect(input).toHaveValue('Première ligne\nSeconde ligne');
+		await userEvent.click(
+			within(toolbar).getByRole('button', { name: 'Gras' }),
+		);
+		// Le réglage garde la saisie ouverte.
+		expect(input).toBeInTheDocument();
+		await userEvent.type(input, ' fin{Control>}{Enter}{/Control}');
+		await waitFor(() => expect(pdf.replaceText).toHaveBeenCalled());
+		const [, params] = pdf.replaceText.mock.calls[0];
+		expect(params.target).toEqual({
+			block: 0,
+			line: null,
+			text: 'Première ligne\nSeconde ligne',
+		});
+		expect(params.text).toBe('Première ligne\nSeconde ligne fin');
+		// Gras sur la police d’origine : la police standard de sa famille.
+		expect(params.style).toMatchObject({ font: 'sans', bold: true });
+	});
+
+	it('ajoute du texte d’un clic et prévient d’une police remplacée', async () => {
+		const { pdf, page, toolbar } = await openEditing();
+		await userEvent.click(
+			within(toolbar).getByRole('button', { name: 'Ajouter du texte' }),
+		);
+		const layer = page.querySelector('.pdf-text-edit-layer');
+		fireEvent.click(layer, { clientX: 20, clientY: 30 });
+		const input = within(page).getByRole('textbox', { name: 'Texte ajouté' });
+		await userEvent.type(input, 'Nouveau{Control>}{Enter}{/Control}');
+		await waitFor(() =>
+			expect(pdf.addText).toHaveBeenCalledWith(
+				0,
+				expect.objectContaining({ text: 'Nouveau' }),
+			),
+		);
+		expect(
+			await screen.findByText(
+				'La police « Arial » du document ne peut pas écrire ce texte : il est écrit en Helvetica.',
+			),
+		).toBeInTheDocument();
+	});
+
+	it('Échap abandonne la saisie, et le mode exclut les annotations', async () => {
+		const { pdf, page } = await openEditing();
+		await userEvent.click(
+			await within(page).findByRole('button', {
+				name: 'Modifier la ligne « Seconde ligne »',
+			}),
+		);
+		const input = within(page).getByRole('textbox', {
+			name: 'Texte de la ligne',
+		});
+		await userEvent.type(input, 'xyz{Escape}');
+		expect(pdf.replaceText).not.toHaveBeenCalled();
+		await userEvent.click(screen.getByRole('button', { name: 'Annoter' }));
+		expect(
+			screen.queryByRole('toolbar', { name: 'Modification du texte' }),
+		).toBeNull();
+		expect(
+			screen.getByRole('toolbar', { name: 'Annotations' }),
+		).toBeInTheDocument();
 	});
 });

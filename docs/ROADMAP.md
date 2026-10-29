@@ -2,7 +2,7 @@
 
 Objectif : couvrir l'essentiel de ce que font les éditeurs PDF payants, pour un seul utilisateur. Les tranches sont livrées dans l'ordre ; chacune laisse l'application utilisable. Cocher une case **dans le même changement** que le code (règle de maintenance de [CLAUDE.md](../CLAUDE.md)).
 
-Priorités de Grégory : **T2-T3 (lire + annoter)**, puis **T4 (éditer le texte existant)**.
+Priorités de Grégory : **T2-T3 (lire + annoter)**, puis **T4 (éditer le texte existant)** : T4a (le texte) fait, T4b (les images) à venir.
 
 Légende : `[x]` fait, `[ ]` à faire. Côté : **N** = navigateur (MuPDF.js), **S** = serveur (MuPDF Node ou outils système).
 
@@ -85,14 +85,20 @@ Livrée en deux temps : **T3a** (marquer le texte, notes et texte libre, enregis
 
 ## T4 : édition du texte existant
 
-Approche et limites : [ADR 0007](adr/0007-edition-du-texte-existant.md) (à valider avant de commencer).
+Livrée en deux temps : **T4a** (le texte) puis **T4b** (les images). Approche et limites : [ADR 0007](adr/0007-edition-du-texte-existant.md).
 
-- [ ] Sélection d'un bloc ou d'une ligne de texte de la page, éditeur en place (N)
-- [ ] Remplacement : retrait du texte d'origine (caviardage ciblé) puis écriture du nouveau texte avec une police embarquée la plus proche (N)
-- [ ] Ajout de texte neuf dans le contenu (pas en annotation) (N)
-- [ ] Choix de police, taille, couleur ; alignement
+### T4a
+
+- [x] Mode « Modifier » à part du mode « Annoter » ; une ligne de texte de la page (clic) ou tout son paragraphe (double clic), éditeur en place (N)
+- [x] Remplacement : retrait du texte d'origine (caviardage ciblé sur une bande fine, vérifié) puis écriture du nouveau texte avec la police d'origine, sinon la police standard embarquée la plus proche (N)
+- [x] Ajout de texte neuf dans le contenu (pas en annotation) (N)
+- [x] Choix de police, gras, italique, taille, couleur ; alignement ; paragraphe recomposé dans sa largeur
+- [x] Avertissement clair quand une police du document ne peut pas être réutilisée
+- [x] Annuler / rétablir communs avec les annotations ; enregistrement en révision `edit`, fichier réécrit en entier (l'ancien texte n'y reste pas) (N → S)
+
+### T4b
+
 - [ ] Ajout, remplacement, déplacement et suppression d'images (N)
-- [ ] Avertissement clair quand une police du document ne peut pas être réutilisée
 
 ## T5 : organisation des pages
 

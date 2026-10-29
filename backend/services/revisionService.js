@@ -91,8 +91,8 @@ async function _addRevision(
 }
 
 // Origines qu'un envoi peut déclarer : une nouvelle version (fiche) ou un
-// enregistrement de la visionneuse (annotations).
-const UPLOAD_ORIGINS = new Set(['upload', 'annotate']);
+// enregistrement de la visionneuse (annotations, texte modifié).
+const UPLOAD_ORIGINS = new Set(['upload', 'annotate', 'edit']);
 
 function _parseOrigin(value) {
 	if (value === undefined || value === '') return 'upload';
@@ -113,7 +113,8 @@ function _parseBaseRevision(value) {
 }
 
 // 🔹 Nouvelle version envoyée (multer, fichier dans tmp/) : un PDF modifié
-// ailleurs, ou annoté dans la visionneuse (`origin` 'annotate'), devient la
+// ailleurs, annoté ou modifié dans la visionneuse (`origin` 'annotate' ou
+// 'edit'), devient la
 // révision suivante. Une version identique à une révision existante est
 // refusée : pour y revenir, on la restaure. Avec `baseRevision`, l'envoi
 // est refusé (409, `data.currentRevision`) si la révision courante a changé

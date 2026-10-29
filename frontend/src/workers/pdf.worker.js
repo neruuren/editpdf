@@ -22,6 +22,12 @@ import {
 	stepHistory,
 	updateAnnotation,
 } from './pdfAnnotations';
+import {
+	addText,
+	hasTextEdits,
+	listTextBlocks,
+	replaceText,
+} from './pdfTextEdit';
 
 // 🔹 Worker du moteur PDF : MuPDF (WASM, ~10 Mo) n'est chargé que dans ce
 // thread, à la première ouverture d'un document. Seul utils/pdfEngine.js
@@ -89,6 +95,14 @@ function getDocument(documentId) {
 function forgetTexts(entry) {
 	entry.texts.clear();
 	entry.textChars = 0;
+}
+
+// Le texte de la page `index` a changé (édition, ou son annulation).
+function forgetPageText(entry, index) {
+	const dropped = entry.texts.get(index);
+	if (!dropped) return;
+	entry.texts.delete(index);
+	entry.textChars -= dropped.text.length;
 }
 
 function getPageText(documentId, index) {
@@ -191,16 +205,56 @@ const handlers = {
 		);
 		return { result: { count, page: index, ...historyState(document) } };
 	},
+	// Blocs et lignes de texte du contenu d'une page (édition du texte).
+	async textBlocks({ documentId, index }) {
+		const mupdf = await loadMupdf();
+		return { result: listTextBlocks(mupdf, getDocument(documentId), index) };
+	},
+	async replaceText({ documentId, index, target, text, style }) {
+		const mupdf = await loadMupdf();
+		const entry = getEntry(documentId);
+		const result = replaceText(mupdf, entry.document, index, {
+			target,
+			text,
+			style,
+		});
+		forgetPageText(entry, index);
+		return {
+			result: { ...result, page: index, ...historyState(entry.document) },
+		};
+	},
+	async addText({ documentId, index, point, text, style }) {
+		const mupdf = await loadMupdf();
+		const entry = getEntry(documentId);
+		const result = addText(mupdf, entry.document, index, {
+			point,
+			text,
+			style,
+		});
+		forgetPageText(entry, index);
+		return {
+			result: { ...result, page: index, ...historyState(entry.document) },
+		};
+	},
 	history({ documentId, direction }) {
 		const entry = getEntry(documentId);
 		const page = stepHistory(entry.document, direction < 0 ? -1 : 1);
-		// Toutes les pages (aplatir annulé ou rétabli) : leur texte a changé.
+		// Toutes les pages (aplatir annulé ou rétabli) : leur texte a changé ;
+		// sinon celui de la page (une édition du texte annulée).
 		if (page === null) forgetTexts(entry);
+		else forgetPageText(entry, page);
 		return { result: { page, ...historyState(entry.document) } };
 	},
+	// Texte modifié : le fichier est réécrit en entier (l'ancien texte n'y
+	// reste pas) et la révision est une « edit », sinon une « annotate ».
 	save({ documentId }) {
-		const data = saveDocument(getDocument(documentId));
-		return { result: data, transfer: [data.buffer] };
+		const document = getDocument(documentId);
+		const isEdit = hasTextEdits(document);
+		const data = saveDocument(document, { rewrite: isEdit });
+		return {
+			result: { data, origin: isEdit ? 'edit' : 'annotate' },
+			transfer: [data.buffer],
+		};
 	},
 	text({ documentId, index }) {
 		return { result: textLayerLines(getPageText(documentId, index)) };
@@ -259,6 +313,7 @@ const QUEUED_TYPES = new Set([
 	'renderJpeg',
 	'annotations',
 	'annotationPages',
+	'textBlocks',
 ]);
 
 async function processQueue() {

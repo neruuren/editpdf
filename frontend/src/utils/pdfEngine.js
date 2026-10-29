@@ -102,6 +102,12 @@ function _pdf(documentId, info) {
 		eraseInk: (index, points, radius) =>
 			call('eraseInk', { documentId, index, points, radius }),
 		flatten: () => call('flatten', { documentId }),
+		getTextBlocks: (index, { signal } = {}) =>
+			call('textBlocks', { documentId, index }, { signal }),
+		replaceText: (index, { target, text, style }) =>
+			call('replaceText', { documentId, index, target, text, style }),
+		addText: (index, { point, text, style }) =>
+			call('addText', { documentId, index, point, text, style }),
 		undo: () => call('history', { documentId, direction: -1 }),
 		redo: () => call('history', { documentId, direction: 1 }),
 		save: () => call('save', { documentId }),
@@ -140,7 +146,15 @@ function _pdf(documentId, info) {
 //   points, radius) (gomme : traits des dessins touchés ; + count),
 //   flatten() (aplatit toutes les annotations ; + count), undo(), redo() →
 //   { page (null : toutes), canUndo, canRedo, isDirty } ;
-// - save() → Uint8Array : le PDF modifié (enregistrement incrémental) ;
+// - texte du contenu (workers/pdfTextEdit.js) : getTextBlocks(index,
+//   { signal }) → [{ index, rect, lines: [{ index, text, rect, baseline,
+//   size, color, font: { name, family, bold, italic, isReusable },
+//   isEditable }] }] ; replaceText(index, { target: { block, line (null :
+//   le bloc), text }, text, style }), addText(index, { point, text, style })
+//   (style : { font, bold, italic, size, color, align }) → { fontReplaced:
+//   { from, to } | null, page, canUndo, canRedo, isDirty } ;
+// - save() → { data (Uint8Array : le PDF modifié, en incrémental, ou réécrit
+//   en entier si le texte a changé), origin ('annotate' | 'edit') } ;
 // - unlock(password) → document déverrouillé | null ;
 // - close() : libère le document dans le worker (déverrouillé ou non).
 export async function openPdf(data) {

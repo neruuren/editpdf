@@ -12,6 +12,7 @@ import PrintDialog from './PrintDialog';
 import SaveConflictDialog from './SaveConflictDialog';
 import SelectionToolbar from './SelectionToolbar';
 import StatusMessage from './StatusMessage';
+import TextEditToolbar from './TextEditToolbar';
 import ViewerSearchBar from './ViewerSearchBar';
 import ViewerSidebar from './ViewerSidebar';
 import ViewerToolbar from './ViewerToolbar';
@@ -31,6 +32,7 @@ import {
 import { useDocumentSearch } from '../hooks/useDocumentSearch';
 import { usePdfDocument } from '../hooks/usePdfDocument';
 import { useReadingPosition } from '../hooks/useReadingPosition';
+import { useTextEditTools } from '../hooks/useTextEditTools';
 import { useTextSelection } from '../hooks/useTextSelection';
 import {
 	POINTS_TO_PX,
@@ -99,6 +101,9 @@ function PdfViewer({ document }) {
 	});
 	const isEditLocked = editor.isLocked || Boolean(pdfState.isReloading);
 	const tools = useAnnotationTools(editor, { isLocked: isEditLocked });
+	// Mode « Modifier » (texte du contenu, T4a) : exclusif du mode annotation,
+	// avec le même historique et le même enregistrement.
+	const textTools = useTextEditTools(editor, { isLocked: isEditLocked });
 	const isStampTool = tools.isAnnotating && tools.tool === 'stamp';
 	const stamps = useStamps({ isEnabled: isStampTool });
 	const stampList = stamps.data ?? [];
@@ -170,7 +175,11 @@ function PdfViewer({ document }) {
 	const [textSelection, clearTextSelection] = useTextSelection(
 		pagesWrapperRef,
 		{
-			isEnabled: Boolean(pdf) && !placesAnnotations && !isPresenting,
+			isEnabled:
+				Boolean(pdf) &&
+				!placesAnnotations &&
+				!textTools.isEditingText &&
+				!isPresenting,
 			// Outil Surligner : la sélection faite à la souris est annotée
 			// aussitôt, dans le style choisi.
 			onPointerSelection: (selection) => {
@@ -482,7 +491,35 @@ function PdfViewer({ document }) {
 		onEditText: tools.editText,
 		onCommitText: tools.commitText,
 		onCancelText: tools.cancelText,
+		textEditing: {
+			isEditingText: textTools.isEditingText,
+			tool: textTools.tool,
+			session: textTools.session,
+			onEdit: textTools.editText,
+			onAdd: textTools.addTextAt,
+			onExtendToBlock: textTools.extendToBlock,
+			onCommit: textTools.commit,
+			onCancel: textTools.cancel,
+		},
 	};
+
+	function handleToggleAnnotate() {
+		if (textTools.isEditingText) textTools.setIsEditingText(false);
+		tools.toggleAnnotating();
+	}
+
+	function handleToggleEditText() {
+		if (tools.isAnnotating) tools.toggleAnnotating();
+		textTools.toggleEditing();
+	}
+
+	// Annuler / rétablir depuis la barre « Modifier » : la saisie en cours
+	// est abandonnée d'abord.
+	function handleTextHistory(direction) {
+		textTools.cancel();
+		if (direction < 0) tools.undo();
+		else tools.redo();
+	}
 
 	// Une annotation choisie dans la liste : amenée à l'écran ; sélectionnée
 	// en mode annotation, sinon son texte s'ouvre (s'il en a un).
@@ -513,6 +550,7 @@ function PdfViewer({ document }) {
 
 	// Aplatir : la barre d'annotation s'ouvre, pour enregistrer (ou annuler).
 	async function handleFlattenConfirm() {
+		textTools.setIsEditingText(false);
 		tools.setIsAnnotating(true);
 		const result = await editor.flatten();
 		if (result?.count === 0) setNotice('Aucune annotation à aplatir.');
@@ -587,6 +625,7 @@ function PdfViewer({ document }) {
 				isSearchOpen={isSearchOpen}
 				isBookmarked={isBookmarked}
 				isAnnotating={tools.isAnnotating}
+				isEditingText={textTools.isEditingText}
 				hasUnsavedChanges={editor.isDirty}
 				onGoToPage={goToPage}
 				onZoomChange={setZoom}
@@ -596,7 +635,8 @@ function PdfViewer({ document }) {
 				onToggleInfo={() => setIsInfoOpen(!isInfoOpen)}
 				onToggleSearch={isSearchOpen ? closeSearch : openSearch}
 				onToggleBookmark={handleToggleBookmark}
-				onToggleAnnotate={tools.toggleAnnotating}
+				onToggleAnnotate={handleToggleAnnotate}
+				onToggleEditText={handleToggleEditText}
 				onPresent={() => setIsPresenting(true)}
 				onPrint={openPrint}
 				onFlatten={
@@ -657,6 +697,30 @@ function PdfViewer({ document }) {
 					onClose={tools.toggleAnnotating}
 				/>
 			)}
+			{pdf && textTools.isEditingText && (
+				<TextEditToolbar
+					tool={textTools.tool}
+					onToolChange={textTools.changeTool}
+					style={textTools.style}
+					session={textTools.session}
+					onStyleChange={textTools.changeStyle}
+					onExtendToBlock={textTools.extendToBlock}
+					canUndo={editor.canUndo && !isEditLocked}
+					canRedo={editor.canRedo && !isEditLocked}
+					onUndo={() => handleTextHistory(-1)}
+					onRedo={() => handleTextHistory(1)}
+					isDirty={editor.isDirty}
+					isSaving={save.isPending || Boolean(pdfState.isReloading)}
+					isLocked={isEditLocked}
+					onSave={() => saveAnnotations()}
+					onClose={handleToggleEditText}
+				/>
+			)}
+			{textTools.isEditingText && textTools.notice && (
+				<p className="pdf-viewer__notice-bar" role="status">
+					{textTools.notice}
+				</p>
+			)}
 			{notice && (
 				<p className="pdf-viewer__notice-bar" role="status">
 					{notice}
@@ -664,7 +728,10 @@ function PdfViewer({ document }) {
 			)}
 			{editor.error && (
 				<p className="pdf-viewer__error" role="alert">
-					Annotation non modifiée : {editor.error.message}
+					{textTools.isEditingText
+						? 'Texte non modifié'
+						: 'Annotation non modifiée'}{' '}
+					: {editor.error.message}
 				</p>
 			)}
 			{save.error && !isSaveConflict(save.error) && (

@@ -200,6 +200,19 @@ describe('POST /api/v1/documents/:id/revisions', () => {
 		});
 	});
 
+	it('enregistre l’origine « edit » d’un texte modifié dans la visionneuse', async () => {
+		const document = await uploadPdf(agent);
+		const response = await agent
+			.post(`/api/v1/documents/${document.id}/revisions`)
+			.field('origin', 'edit')
+			.field('baseRevision', '0')
+			.attach('file', await buildPdf({ text: 'Modifie' }), 'modifie.pdf');
+		expect(response.status).toBe(201);
+		const revisions = await listRevisions(document.id);
+		expect(revisions.body.data[0]).toMatchObject({ number: 1, origin: 'edit' });
+		expect((await search('modifie')).body.count).toBe(1);
+	});
+
 	it('refuse (409) un enregistrement parti d’une révision qui n’est plus la courante', async () => {
 		const document = await uploadPdf(agent);
 		await sendVersion(document.id, { text: 'Ailleurs' });

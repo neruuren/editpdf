@@ -17,6 +17,7 @@ const PRESET_ZOOMS = [
 // navigation (page précédente / suivante, aller à la page), zoom (crans,
 // largeur, page entière, pourcentages), recherche, signet de la page
 // affichée, mode annotation (`isAnnotating`, la barre AnnotationToolbar),
+// mode « Modifier » (`isEditingText`, la barre TextEditToolbar),
 // panneaux (navigation, informations) et un menu « Plus d'actions »
 // (rotation d'affichage, présentation, impression, aplatir les
 // annotations si `onFlatten`, téléchargement ; popover natif). `zoom` : 'width' | 'page' | facteur ;
@@ -33,6 +34,7 @@ function ViewerToolbar({
 	isSearchOpen,
 	isBookmarked,
 	isAnnotating,
+	isEditingText,
 	hasUnsavedChanges,
 	onGoToPage,
 	onZoomChange,
@@ -43,6 +45,7 @@ function ViewerToolbar({
 	onToggleSearch,
 	onToggleBookmark,
 	onToggleAnnotate,
+	onToggleEditText,
 	onPresent,
 	onPrint,
 	onFlatten,
@@ -231,6 +234,32 @@ function ViewerToolbar({
 							>
 								<path d="M4 20l1-5L16 4l4 4L9 19z" />
 								<path d="M13.5 6.5l4 4" />
+							</svg>
+						</button>
+						<button
+							type="button"
+							className="button button--ghost viewer-toolbar__icon"
+							aria-label={
+								hasUnsavedChanges
+									? 'Modifier le texte (modifications non enregistrées)'
+									: 'Modifier le texte'
+							}
+							title="Modifier le texte"
+							aria-pressed={isEditingText}
+							onClick={onToggleEditText}
+							data-unsaved={hasUnsavedChanges || undefined}
+						>
+							{/* T et curseur de saisie */}
+							<svg
+								className="viewer-toolbar__svg"
+								viewBox="0 0 24 24"
+								aria-hidden="true"
+							>
+								<path d="M4 7V4h11v3" />
+								<path d="M9.5 4v16" />
+								<path d="M7 20h5" />
+								<path d="M18 9v11" />
+								<path d="M16 9h4M16 20h4" />
 							</svg>
 						</button>
 					</>

@@ -48,14 +48,17 @@ export function isSaveConflict(error) {
 // 🔹 Modifications des annotations du PDF ouvert (`pdf`, révision
 // `revision` du document) : créer, modifier, supprimer, annuler, rétablir
 // (dans le moteur, jusqu'au dernier enregistrement), puis enregistrer en
-// nouvelle révision (origine « annotate »). Le PDF enregistré devient la
+// nouvelle révision (origine « annotate », ou « edit » si le texte du
+// contenu a été modifié). Le PDF enregistré devient la
 // révision suivante sans être retéléchargé, avec le mot de passe de la
 // session s'il est protégé.
 // Renvoie { pageVersion(index), versions (Map page → version), allVersion,
 // canUndo, canRedo, isDirty, isLocked,
 // error, create(index, spec) → id | null, update(index, id, changes),
 // remove(index, id), removeMarkup(index, from, to), erase(index, points,
-// radius) (gomme), flatten() (aplatir), undo(), redo(), save, discard() } ;
+// radius) (gomme), flatten() (aplatir), replaceText(index, params),
+// addText(index, params) (texte du contenu, T4a), undo(), redo(), save,
+// discard() } ;
 // `save` est une mutation : save.mutate({ force }) (force : sans contrôle
 // de la révision de départ, après un conflit).
 export function useAnnotationEditor({ document, pdf, revision, author }) {
@@ -67,14 +70,14 @@ export function useAnnotationEditor({ document, pdf, revision, author }) {
 
 	const save = useMutation({
 		mutationFn: async ({ force = false } = {}) => {
-			const data = await pdf.save();
-			const file = new File([data], 'annotations.pdf', {
+			const { data, origin } = await pdf.save();
+			const file = new File([data], 'modifications.pdf', {
 				type: 'application/pdf',
 			});
 			const updated = await revisionsAPI.upload({
 				id: document.id,
 				file,
-				origin: 'annotate',
+				origin,
 				baseRevision: force ? undefined : revision,
 			});
 			putDocumentFile(updated.id, updated.currentRevision, data.buffer);
@@ -162,6 +165,19 @@ export function useAnnotationEditor({ document, pdf, revision, author }) {
 		[isLocked, run, pdf],
 	);
 
+	// Texte du contenu (T4a) → { fontReplaced, … } | null.
+	const replaceText = useCallback(
+		(index, params) =>
+			isLocked ? null : run(() => pdf.replaceText(index, params)),
+		[isLocked, run, pdf],
+	);
+
+	const addText = useCallback(
+		(index, params) =>
+			isLocked ? null : run(() => pdf.addText(index, params)),
+		[isLocked, run, pdf],
+	);
+
 	const undo = useCallback(
 		() => (isLocked ? null : run(() => pdf.undo())),
 		[isLocked, run, pdf],
@@ -206,6 +222,8 @@ export function useAnnotationEditor({ document, pdf, revision, author }) {
 		removeMarkup,
 		erase,
 		flatten,
+		replaceText,
+		addText,
 		undo,
 		redo,
 		save,
