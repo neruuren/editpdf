@@ -106,6 +106,20 @@ function _pdf(documentId, info) {
 		eraseInk: (index, points, radius) =>
 			call('eraseInk', { documentId, index, points, radius }),
 		flatten: () => call('flatten', { documentId }),
+		getFormFields: (index, { signal } = {}) =>
+			call('formFields', { documentId, index }, { signal }),
+		setFieldValue: (index, fieldId, value) =>
+			call('setFieldValue', { documentId, index, fieldId, value }),
+		// L'image est copiée : celle de l'appelant reste intacte.
+		signField: (index, fieldId, data, { author }) => {
+			const image = data.slice();
+			return call(
+				'signField',
+				{ documentId, index, fieldId, image, author },
+				{ transfer: [image.buffer] },
+			);
+		},
+		flattenForm: () => call('flattenForm', { documentId }),
 		getTextBlocks: (index, { signal } = {}) =>
 			call('textBlocks', { documentId, index }, { signal }),
 		replaceText: (index, { target, text, style }) =>
@@ -200,6 +214,12 @@ function _pdf(documentId, info) {
 //   points, radius) (gomme : traits des dessins touchés ; + count),
 //   flatten() (aplatit toutes les annotations ; + count), undo(), redo() →
 //   { page (null : toutes), canUndo, canRedo, isDirty } ;
+// - formulaires (workers/pdfForms.js) : getFormFields(index, { signal }) →
+//   [{ id, type, name, label, rect, isReadOnly, isRequired, value, isOn,
+//   options, … }] ; setFieldValue(index, id, value), signField(index, id,
+//   data (PNG ou JPEG), { author }) (+ id de la signature posée) →
+//   { pages (pages redessinées), page: null, canUndo, canRedo, isDirty } ;
+//   flattenForm() (+ count) → { page: null, … } ;
 // - texte du contenu (workers/pdfTextEdit.js) : getTextBlocks(index,
 //   { signal }) → [{ index, rect, lines: [{ index, text, rect, baseline,
 //   size, color, font: { name, family, bold, italic, isReusable },
@@ -230,7 +250,7 @@ function _pdf(documentId, info) {
 // - save() → { data (Uint8Array : le PDF modifié, en incrémental, ou réécrit
 //   en entier si le texte, les images, les pages ou leur mise en page ont
 //   changé), origin
-//   ('annotate' | 'edit' | 'organize'), pageMap (pages réorganisées : pour
+//   ('annotate' | 'form' | 'edit' | 'organize'), pageMap (pages réorganisées : pour
 //   chaque page de départ, sa nouvelle place ou -1) } ;
 // - undo(), redo() : + layout quand toutes les pages ont pu changer ;
 // - unlock(password) → document déverrouillé | null ;

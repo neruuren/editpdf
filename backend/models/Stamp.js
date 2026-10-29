@@ -1,13 +1,15 @@
 const { getDb } = require('../config/db');
 const { compareNames } = require('../utils/validators');
 
-// 🔹 Accès à la table stamps (tampons image). Le chemin du fichier reste
+// 🔹 Accès à la table stamps (tampons image et signatures manuscrites,
+// `kind` 'stamp' ou 'signature'). Le chemin du fichier reste
 // interne : l'API sert l'image par GET /api/v1/stamps/:id/image.
 
 function toStamp(row) {
 	return {
 		id: row.id,
 		name: row.name,
+		kind: row.kind,
 		width: row.width,
 		height: row.height,
 		size: row.size,
@@ -43,16 +45,19 @@ function findIdByHash(hash) {
 	);
 }
 
-function count() {
-	return getDb().prepare('SELECT COUNT(*) FROM stamps').pluck().get();
+function count(kind) {
+	return getDb()
+		.prepare('SELECT COUNT(*) FROM stamps WHERE kind = ?')
+		.pluck()
+		.get(kind);
 }
 
-function create({ id, name, width, height, size, hash, path }) {
+function create({ id, name, kind, width, height, size, hash, path }) {
 	getDb()
 		.prepare(
-			'INSERT INTO stamps (id, name, width, height, size, hash, path) VALUES (?, ?, ?, ?, ?, ?, ?)',
+			'INSERT INTO stamps (id, name, kind, width, height, size, hash, path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
 		)
-		.run(id, name, width, height, size, hash, path);
+		.run(id, name, kind, width, height, size, hash, path);
 }
 
 function rename(id, name) {

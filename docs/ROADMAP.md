@@ -62,7 +62,7 @@ Livrée en deux temps : **T2a** (lire : moteur, rendu, zoom, navigation, reprise
 
 ## T3 : annotations
 
-Livrée en deux temps : **T3a** (marquer le texte, notes et texte libre, enregistrer) puis **T3b** (dessin, formes, tampons, aplatir). Choix : [ADR 0010](adr/0010-annotations.md). Les signatures mémorisées de T6 pourront s'appuyer sur les tampons image.
+Livrée en deux temps : **T3a** (marquer le texte, notes et texte libre, enregistrer) puis **T3b** (dessin, formes, tampons, aplatir). Choix : [ADR 0010](adr/0010-annotations.md). Les signatures manuscrites de T6a s'appuient sur les tampons image (`kind`).
 
 ### T3a
 
@@ -123,10 +123,17 @@ Livrée en deux temps : **T5a** (l'ordre et le nombre des pages) puis **T5b** (r
 
 ## T6 : formulaires et signature
 
-- [ ] Remplissage des formulaires AcroForm (texte, cases, listes, boutons radio) (N)
-- [ ] Création de champs de formulaire (N)
-- [ ] Signature manuscrite : tracée, saisie ou image, mémorisée pour réutilisation (N)
-- [ ] Aplatir un formulaire rempli (N)
+Livrée en deux temps : **T6a** (remplir, signer, aplatir) puis **T6b** (créer des champs). Choix : [ADR 0012](adr/0012-formulaires-et-signature.md).
+
+### T6a
+
+- [x] Remplissage des formulaires AcroForm (texte, cases, listes, boutons radio) directement dans la visionneuse, sans mode ; JavaScript du PDF jamais exécuté ; révision `form` (N)
+- [x] Signature manuscrite : tracée, saisie (trois polices cursives libres) ou image, gardée sur le serveur ; posée d'un clic ou dans un champ de signature (N/S)
+- [x] Aplatir un formulaire rempli (N)
+
+### T6b
+
+- [ ] Création de champs de formulaire : texte, case, bouton radio, liste, zone de signature (N)
 
 ## T7 : OCR et compression (traitements serveur)
 

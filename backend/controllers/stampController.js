@@ -34,20 +34,22 @@ exports.deleteStamp = asyncHandler(async (req, res) => {
 	res.status(200).json({ success: true, data: null });
 });
 
-// @desc    Image PNG d'un tampon
+// @desc    Image PNG d'un tampon ou d'une signature
 // @route   GET /api/v1/stamps/:id/image
 // @access  Private
 exports.getStampImage = (req, res, next) => {
-	const filePath = stampService.getStampImageFile(req.params.id);
+	const { filePath, kind } = stampService.getStampImageFile(req.params.id);
 	res.sendFile(
 		filePath,
 		{
 			headers: {
 				'Content-Type': 'image/png',
-				// Une signature scannée ne reste pas utilisable dans le cache
-				// après la déconnexion : revalidée à chaque fois (304 avec
-				// l'ETag tant que la session vaut, 401 sinon).
-				'Cache-Control': 'private, no-cache',
+				// Un tampon ne reste pas utilisable dans le cache après la
+				// déconnexion : revalidé à chaque fois (304 avec l'ETag tant que
+				// la session vaut, 401 sinon). Une signature n'y est même pas
+				// gardée (appareil partagé).
+				'Cache-Control':
+					kind === 'signature' ? 'private, no-store' : 'private, no-cache',
 			},
 		},
 		(err) => {

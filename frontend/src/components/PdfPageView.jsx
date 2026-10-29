@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import FreeTextEditor from './FreeTextEditor';
 import PdfAnnotationLayer from './PdfAnnotationLayer';
 import PdfDrawingLayer from './PdfDrawingLayer';
+import PdfFormLayer from './PdfFormLayer';
 import PdfTextEditLayer from './PdfTextEditLayer';
 import PdfImageEditLayer from './PdfImageEditLayer';
 import PdfTextLayer from './PdfTextLayer';
@@ -31,7 +32,8 @@ const PLACING_TOOLS = new Set(['note', 'text', 'stamp']);
 // redessinée à chaque modification), mode et outil d'annotation, styles,
 // annotation sélectionnée, éditeur de texte libre et leurs actions ;
 // `annotating.textEditing` : mode « Modifier » (calques PdfTextEditLayer et,
-// avec l'outil « Images », PdfImageEditLayer).
+// avec l'outil « Images », PdfImageEditLayer) ; `annotating.forms` : en
+// lecture, les champs de formulaire à remplir (PdfFormLayer).
 function PdfPageView({
 	pdf,
 	index,
@@ -130,6 +132,7 @@ function PdfPageView({
 	const textEditor =
 		annotating?.textEditor?.page === index ? annotating.textEditor : null;
 	const textEditing = withAnnotations ? annotating.textEditing : null;
+	const forms = withAnnotations ? annotating.forms : null;
 	const isDrawing =
 		withAnnotations &&
 		annotating.isAnnotating &&
@@ -191,6 +194,20 @@ function PdfPageView({
 						/>
 					)}
 				</PdfAnnotationLayer>
+			)}
+			{isReady && forms?.isEnabled && (
+				<PdfFormLayer
+					pdf={pdf}
+					index={index}
+					page={page}
+					scale={scale}
+					rotation={rotation}
+					version={version}
+					renderedVersion={renderedVersion}
+					isLocked={annotating.isLocked}
+					onChange={(field, value) => forms.onChange(index, field, value)}
+					onSign={(field) => forms.onSign(index, field)}
+				/>
 			)}
 			{isReady && textEditing?.isEditingText && (
 				<PdfTextEditLayer

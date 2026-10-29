@@ -1,0 +1,15 @@
+/* Comme du papier, quel que soit le thème : la signature y a sa vraie
+   couleur. Le doigt trace au lieu de faire défiler. */
+.signature-pad {
+	display: block;
+	inline-size: 100%;
+	block-size: 10rem;
+	border: 1px dashed var(--color-border);
+	border-radius: var(--radius-md);
+	background:
+		linear-gradient(#c8ccd4, #c8ccd4) no-repeat 1.5rem calc(100% - 2.5rem) /
+			calc(100% - 3rem) 1px,
+		#fff;
+	cursor: crosshair;
+	touch-action: none;
+}

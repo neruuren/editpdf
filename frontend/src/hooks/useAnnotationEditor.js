@@ -44,13 +44,18 @@ function _initial(pdf) {
 	};
 }
 
-function _applied(state, { page, layout, canUndo, canRedo, isDirty }) {
+// `pages` (formulaires) : les pages redessinées, quand il y en a
+// plusieurs ; sinon `page` (null : toutes).
+function _applied(state, { page, pages, layout, canUndo, canRedo, isDirty }) {
 	const versions = new Map(state.versions);
-	if (page !== null) versions.set(page, (versions.get(page) ?? 0) + 1);
+	const changed = pages ?? (page === null ? null : [page]);
+	for (const index of changed ?? []) {
+		versions.set(index, (versions.get(index) ?? 0) + 1);
+	}
 	return {
 		...state,
 		versions,
-		all: page === null ? state.all + 1 : state.all,
+		all: changed === null ? state.all + 1 : state.all,
 		layout: layout ?? state.layout,
 		canUndo,
 		canRedo,
@@ -67,15 +72,17 @@ export function isSaveConflict(error) {
 // 🔹 Modifications des annotations du PDF ouvert (`pdf`, révision
 // `revision` du document) : créer, modifier, supprimer, annuler, rétablir
 // (dans le moteur, jusqu'au dernier enregistrement), puis enregistrer en
-// nouvelle révision (origine « annotate », ou « edit » si le texte du
-// contenu a été modifié). Le PDF enregistré devient la
-// révision suivante sans être retéléchargé, avec le mot de passe de la
-// session s'il est protégé.
+// nouvelle révision (origine « annotate », « form » si un formulaire a
+// été rempli, « edit » si le texte du contenu a été modifié…). Le PDF
+// enregistré devient la révision suivante sans être retéléchargé, avec le
+// mot de passe de la session s'il est protégé.
 // Renvoie { pageVersion(index), versions (Map page → version), allVersion,
 // canUndo, canRedo, isDirty, isLocked,
 // error, create(index, spec) → id | null, update(index, id, changes),
 // remove(index, id), removeMarkup(index, from, to), erase(index, points,
-// radius) (gomme), flatten() (aplatir), replaceText(index, params),
+// radius) (gomme), flatten() (aplatir), setFieldValue(index, id, value),
+// signField(index, id, image), flattenForm() (formulaires, T6a),
+// replaceText(index, params),
 // addText(index, params) (texte du contenu, T4a), deleteImage, moveImage,
 // replaceImage, addImage (index, params) (images du contenu, T4b),
 // movePages, rotatePages, deletePages, duplicatePages, insertBlankPage,
@@ -202,6 +209,31 @@ export function useAnnotationEditor({ document, pdf, revision, author }) {
 	// Aplatir toutes les annotations du document → { count, … } | null.
 	const flatten = useCallback(
 		() => (isLocked ? null : run(() => pdf.flatten())),
+		[isLocked, run, pdf],
+	);
+
+	// Formulaires (T6a).
+	const setFieldValue = useCallback(
+		(index, id, value) =>
+			isLocked ? null : run(() => pdf.setFieldValue(index, id, value)),
+		[isLocked, run, pdf],
+	);
+
+	// Signature (PNG) posée dans le champ de signature `id` → id de
+	// l'annotation | null.
+	const signField = useCallback(
+		async (index, id, image) => {
+			if (isLocked) return null;
+			const result = await run(() =>
+				pdf.signField(index, id, image, { author }),
+			);
+			return result?.id ?? null;
+		},
+		[isLocked, run, pdf, author],
+	);
+
+	const flattenForm = useCallback(
+		() => (isLocked ? null : run(() => pdf.flattenForm())),
 		[isLocked, run, pdf],
 	);
 
@@ -345,6 +377,9 @@ export function useAnnotationEditor({ document, pdf, revision, author }) {
 		removeMarkup,
 		erase,
 		flatten,
+		setFieldValue,
+		signField,
+		flattenForm,
 		replaceText,
 		addText,
 		deleteImage,

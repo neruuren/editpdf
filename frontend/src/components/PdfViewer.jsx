@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useBlocker } from 'react-router-dom';
 import AnnotationToolbar from './AnnotationToolbar';
+import ChangesBar from './ChangesBar';
+import SignatureDialog from './SignatureDialog';
 import StampDialog from './StampDialog';
 import ConfirmDialog from './ConfirmDialog';
 import DocumentDetails from './DocumentDetails';
@@ -39,6 +41,7 @@ import { useReadingPosition } from '../hooks/useReadingPosition';
 import { usePageTools } from '../hooks/usePageTools';
 import { useTextEditTools } from '../hooks/useTextEditTools';
 import { useTextSelection } from '../hooks/useTextSelection';
+import { stampsAPI } from '../utils/api';
 import {
 	POINTS_TO_PX,
 	ROTATIONS,
@@ -124,12 +127,23 @@ function PdfViewer({ document }) {
 	const pageDialogsRef = useRef(null);
 	const pageSetupRef = useRef(null);
 	const isStampTool = tools.isAnnotating && tools.tool === 'stamp';
-	const stamps = useStamps({ isEnabled: isStampTool });
-	const stampList = stamps.data ?? [];
+	// Signature (T6a) : le champ de signature à remplir ({ index, field }),
+	// null pour une signature posée ensuite d'un clic.
+	const [signTarget, setSignTarget] = useState(null);
+	const [wantsSignatures, setWantsSignatures] = useState(false);
+	const signatureRef = useRef(null);
+	const flattenFormRef = useRef(null);
+	const stamps = useStamps({ isEnabled: isStampTool || wantsSignatures });
+	const allStamps = stamps.data ?? [];
+	// Les signatures se posent comme des tampons image, mais se choisissent
+	// à part.
+	const stampList = allStamps.filter((stamp) => stamp.kind !== 'signature');
+	const signatures = allStamps.filter((stamp) => stamp.kind === 'signature');
 	const stampImage = tools.stampChoice.startsWith('image:')
-		? (stampList.find((stamp) => `image:${stamp.id}` === tools.stampChoice) ??
+		? (allStamps.find((stamp) => `image:${stamp.id}` === tools.stampChoice) ??
 			null)
 		: null;
+	const isPlacingSignature = isStampTool && stampImage?.kind === 'signature';
 	let stampLabel = tools.stampChoice.slice('text:'.length);
 	if (tools.stampChoice === 'custom') stampLabel = tools.customStampText;
 	else if (tools.stampChoice.startsWith('image:')) {
@@ -487,6 +501,44 @@ function PdfViewer({ document }) {
 		tools,
 	]);
 
+	const isReading =
+		!tools.isAnnotating && !textTools.isEditingText && !pageTools.isOrganizing;
+
+	function openSignature(target = null) {
+		setWantsSignatures(true);
+		setSignTarget(target);
+		signatureRef.current?.showModal();
+	}
+
+	// Signature choisie : posée dans son champ, sinon outil Tampon chargé de
+	// la signature (un clic sur la page la pose).
+	async function handleChooseSignature(signature) {
+		if (signTarget) {
+			const { index, field } = signTarget;
+			setSignTarget(null);
+			try {
+				const image = await stampsAPI.fetchImage(signature.id);
+				await editor.signField(index, field.id, image);
+			} catch (error) {
+				setNotice(`Signature non posée : ${error.message}`);
+			}
+			return;
+		}
+		setNotice(null);
+		textTools.setIsEditingText(false);
+		pageTools.setIsOrganizing(false);
+		tools.setIsAnnotating(true);
+		tools.chooseStamp(`image:${signature.id}`);
+		tools.changeTool('stamp');
+	}
+
+	async function handleFlattenFormConfirm() {
+		const result = await editor.flattenForm();
+		if (result?.count === 0) {
+			setNotice('Aucun champ de formulaire à aplatir.');
+		}
+	}
+
 	const annotating = {
 		pageVersion: editor.pageVersion,
 		isAnnotating: tools.isAnnotating,
@@ -511,6 +563,13 @@ function PdfViewer({ document }) {
 		onEditText: tools.editText,
 		onCommitText: tools.commitText,
 		onCancelText: tools.cancelText,
+		// Formulaires : remplis en lecture, hors des modes d'édition.
+		forms: {
+			isEnabled: isReading,
+			onChange: (index, field, value) =>
+				editor.setFieldValue(index, field.id, value),
+			onSign: (index, field) => openSignature({ index, field }),
+		},
 		textEditing: {
 			isEditingText: textTools.isEditingText,
 			tool: textTools.tool,
@@ -716,7 +775,27 @@ function PdfViewer({ document }) {
 								flattenRef.current?.showModal();
 							}
 				}
+				onFlattenForm={
+					isEditLocked || !isReading
+						? undefined
+						: () => {
+								setNotice(null);
+								flattenFormRef.current?.showModal();
+							}
+				}
+				onSign={isEditLocked ? undefined : () => openSignature()}
 			/>
+			{pdf && isReading && editor.isDirty && (
+				<ChangesBar
+					canUndo={editor.canUndo && !isEditLocked}
+					canRedo={editor.canRedo && !isEditLocked}
+					onUndo={tools.undo}
+					onRedo={tools.redo}
+					isSaving={save.isPending || Boolean(pdfState.isReloading)}
+					isLocked={isEditLocked}
+					onSave={() => saveAnnotations()}
+				/>
+			)}
 			{pdf && isSearchOpen && (
 				<ViewerSearchBar
 					inputRef={searchInputRef}
@@ -829,15 +908,23 @@ function PdfViewer({ document }) {
 					{notice}
 				</p>
 			)}
+			{isPlacingSignature && (
+				<p className="pdf-viewer__notice-bar" role="status">
+					Touchez la page à l’endroit où poser la signature « {stampImage.name}{' '}
+					».
+				</p>
+			)}
 			{editor.error && (
 				<p className="pdf-viewer__error" role="alert">
 					{pageTools.isOrganizing
 						? 'Pages non modifiées'
-						: !textTools.isEditingText
-							? 'Annotation non modifiée'
-							: textTools.tool === 'image'
-								? 'Image non modifiée'
-								: 'Texte non modifié'}{' '}
+						: isReading
+							? 'Formulaire non modifié'
+							: !textTools.isEditingText
+								? 'Annotation non modifiée'
+								: textTools.tool === 'image'
+									? 'Image non modifiée'
+									: 'Texte non modifié'}{' '}
 					: {editor.error.message}
 				</p>
 			)}
@@ -950,6 +1037,34 @@ function PdfViewer({ document }) {
 				onCustomTextChange={tools.setCustomStampText}
 				onWithDateChange={tools.setStampWithDate}
 			/>
+			<SignatureDialog
+				ref={signatureRef}
+				signatures={signatures}
+				isLoading={stamps.isLoading}
+				fieldLabel={
+					signTarget
+						? signTarget.field.label || signTarget.field.name || 'Signature'
+						: null
+				}
+				onChoose={handleChooseSignature}
+			/>
+			<ConfirmDialog
+				ref={flattenFormRef}
+				title="Aplatir le formulaire ?"
+				confirmLabel="Aplatir"
+				onConfirm={handleFlattenFormConfirm}
+			>
+				<p>
+					Les champs du formulaire seront fondus dans les pages avec leurs
+					valeurs : ils s’afficheront et s’imprimeront à l’identique partout,
+					mais ne se rempliront plus. Une signature numérique déjà présente ne
+					serait plus vérifiable.
+				</p>
+				<p>
+					Vous pourrez encore annuler avant d’enregistrer, et l’historique garde
+					la version d’avant.
+				</p>
+			</ConfirmDialog>
 			<ConfirmDialog
 				ref={flattenRef}
 				title="Aplatir les annotations ?"
@@ -988,7 +1103,7 @@ function PdfViewer({ document }) {
 					blocker.reset?.();
 				}}
 			>
-				<p>Vos annotations non enregistrées seront perdues.</p>
+				<p>Vos modifications non enregistrées seront perdues.</p>
 			</ConfirmDialog>
 			{pdf && isPresenting && (
 				<PdfPresentation

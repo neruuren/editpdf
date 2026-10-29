@@ -200,6 +200,17 @@ describe('POST /api/v1/documents/:id/revisions', () => {
 		});
 	});
 
+	it('enregistre l’origine « form » d’un formulaire rempli dans la visionneuse', async () => {
+		const document = await uploadPdf(agent);
+		const response = await agent
+			.post(`/api/v1/documents/${document.id}/revisions`)
+			.field('origin', 'form')
+			.attach('file', await buildPdf({ text: 'Rempli' }), 'rempli.pdf');
+		expect(response.status).toBe(201);
+		const revisions = await listRevisions(document.id);
+		expect(revisions.body.data[0]).toMatchObject({ number: 1, origin: 'form' });
+	});
+
 	it('enregistre l’origine « edit » d’un texte modifié dans la visionneuse', async () => {
 		const document = await uploadPdf(agent);
 		const response = await agent

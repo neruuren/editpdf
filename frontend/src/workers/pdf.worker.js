@@ -38,6 +38,14 @@ import {
 } from './pdfImageEdit';
 import { needsSanitize } from './pdfContent';
 import {
+	flattenForm,
+	hasFlattenedForm,
+	hasFormEdits,
+	listFields,
+	setFieldValue,
+	signField,
+} from './pdfForms';
+import {
 	deletePages,
 	duplicatePages,
 	extractPages,
@@ -277,6 +285,37 @@ const handlers = {
 		);
 		return { result: { count, page: index, ...historyState(document) } };
 	},
+	// Champs de formulaire d'une page (T6a).
+	formFields({ documentId, index }) {
+		return { result: listFields(getDocument(documentId), index) };
+	},
+	// Un champ peut avoir des widgets sur plusieurs pages : `pages`.
+	setFieldValue({ documentId, index, fieldId, value }) {
+		const document = getDocument(documentId);
+		const result = setFieldValue(document, index, fieldId, value);
+		return {
+			result: {
+				pages: result?.pages ?? [],
+				page: null,
+				...historyState(document),
+			},
+		};
+	},
+	async signField({ documentId, index, fieldId, image, author }) {
+		const mupdf = await loadMupdf();
+		const document = getDocument(documentId);
+		const { id, pages } = signField(mupdf, document, index, fieldId, image, {
+			author,
+		});
+		return { result: { id, pages, page: null, ...historyState(document) } };
+	},
+	// Les valeurs des champs aplatis entrent dans le texte des pages.
+	flattenForm({ documentId }) {
+		const entry = getEntry(documentId);
+		const count = flattenForm(entry.document);
+		if (count > 0) forgetTexts(entry);
+		return { result: { count, page: null, ...historyState(entry.document) } };
+	},
 	// Blocs et lignes de texte du contenu d'une page (édition du texte).
 	async textBlocks({ documentId, index }) {
 		const mupdf = await loadMupdf();
@@ -433,8 +472,8 @@ const handlers = {
 	// Texte ou images modifiés, pages réorganisées ou mises en page : le
 	// fichier est réécrit en entier (l'ancien texte, l'image retirée, une
 	// page supprimée n'y restent pas) et la révision est une « edit » ou une
-	// « organize »,
-	// sinon une « annotate ». `pageMap` : où chaque page de départ est
+	// « organize » ; sinon une « form » (formulaire rempli, signé ou
+	// aplati) ou une « annotate », en incrémental. `pageMap` : où chaque page de départ est
 	// allée (signets à recaler).
 	save({ documentId }) {
 		const entry = getEntry(documentId);
@@ -445,12 +484,14 @@ const handlers = {
 		// document ouvert (constaté), les pages ne se retrouveraient plus.
 		const map = isOrganized ? pageMap(entry.pageIds, pageIds(document)) : null;
 		const data = saveDocument(document, {
-			rewrite: isEdit || isOrganized,
+			// Formulaire aplati : ses anciennes valeurs ne restent pas.
+			rewrite: isEdit || isOrganized || hasFlattenedForm(document),
 			sanitize: isEdit && needsSanitize(document),
 		});
 		let origin = 'annotate';
 		if (isEdit) origin = 'edit';
 		else if (isOrganized) origin = 'organize';
+		else if (hasFormEdits(document)) origin = 'form';
 		return {
 			result: {
 				data,
@@ -519,6 +560,7 @@ const QUEUED_TYPES = new Set([
 	'annotationPages',
 	'textBlocks',
 	'images',
+	'formFields',
 ]);
 
 async function processQueue() {

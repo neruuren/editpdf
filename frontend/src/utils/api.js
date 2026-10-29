@@ -160,15 +160,17 @@ export const collectionsAPI = {
 
 const stampPath = (id) => `/v1/stamps/${encodeURIComponent(id)}`;
 
-// Tampons image : [{ id, name, width, height (pixels), size, createdAt }].
+// Tampons image et signatures manuscrites : [{ id, name, kind ('stamp' |
+// 'signature'), width, height (pixels), size, createdAt }].
 export const stampsAPI = {
 	list: () => request('/v1/stamps'),
-	// `name` facultatif (nom du fichier sinon) ; 409 avec data.stampId si la
-	// même image existe déjà.
-	create: ({ file, name }) => {
+	// `name` facultatif (nom du fichier sinon) ; `kind` : 'stamp' (défaut)
+	// ou 'signature' ; 409 avec data.stampId si la même image existe déjà.
+	create: ({ file, name, kind }) => {
 		const formData = new FormData();
-		// Le champ avant le fichier : le serveur les lit dans l'ordre.
+		// Les champs avant le fichier : le serveur les lit dans l'ordre.
 		if (name) formData.append('name', name);
+		if (kind) formData.append('kind', kind);
 		formData.append('file', file);
 		return request('/v1/stamps', { method: 'POST', body: formData });
 	},

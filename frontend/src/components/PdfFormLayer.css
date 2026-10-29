@@ -1,0 +1,109 @@
+/* Calque dans le repère de la page non tournée, comme les autres calques :
+   la rotation d'affichage est une transformation CSS. Seuls les champs
+   reçoivent le pointeur. Les champs sont teintés (comme dans les lecteurs
+   de PDF) ; leur contenu est celui que dessine MuPDF sur la page. */
+.pdf-form-layer {
+	--form-tint: color-mix(in srgb, #2f6fdb 12%, transparent);
+	--form-accent: #2f6fdb;
+
+	position: absolute;
+	inset-block-start: 0;
+	inset-inline-start: 0;
+	overflow: clip;
+	transform-origin: 0 0;
+	direction: ltr;
+	pointer-events: none;
+}
+
+.pdf-form-layer__item {
+	position: absolute;
+}
+
+.pdf-form-layer__field {
+	position: absolute;
+	inset: 0;
+	inline-size: 100%;
+	block-size: 100%;
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0 2px;
+	border: 0;
+	border-radius: 0;
+	font-family: Helvetica, Arial, sans-serif;
+	line-height: 1.15;
+	color: transparent;
+	background: var(--form-tint);
+	pointer-events: auto;
+}
+
+.pdf-form-layer__field:hover {
+	background: color-mix(in srgb, #2f6fdb 20%, transparent);
+}
+
+.pdf-form-layer__field:focus-visible {
+	outline: 2px solid var(--form-accent);
+	outline-offset: 0;
+}
+
+.pdf-form-layer__field:disabled,
+.pdf-form-layer__field:read-only {
+	cursor: default;
+}
+
+/* Saisie en cours, ou valeur écrite pas encore redessinée : sur fond blanc,
+   à la place de l'apparence de la page (toujours noir sur blanc, comme le
+   papier, quel que soit le thème). */
+.pdf-form-layer__text[data-editing='true'],
+.pdf-form-layer__text[data-pending='true'] {
+	color: #000;
+	background: #fff;
+	caret-color: #000;
+}
+
+.pdf-form-layer__text[data-editing='true'] {
+	outline: 2px solid var(--form-accent);
+}
+
+textarea.pdf-form-layer__text {
+	padding-block: 1px;
+	resize: none;
+	overflow: auto;
+}
+
+.pdf-form-layer__toggle {
+	appearance: none;
+	cursor: pointer;
+}
+
+.pdf-form-layer__toggle[type='radio'] {
+	border-radius: 50%;
+}
+
+/* Liste déroulante : la valeur affichée est celle de la page ; le menu
+   ouvert est lisible. */
+.pdf-form-layer__choice {
+	appearance: none;
+	cursor: pointer;
+}
+
+.pdf-form-layer__choice option,
+.pdf-form-layer__list option {
+	color: #000;
+	background: #fff;
+}
+
+/* Liste à choix : toujours visible (MuPDF ne dessine pas la sélection). */
+.pdf-form-layer__list option:checked {
+	color: #000;
+	background: #cfe0ff;
+}
+
+.pdf-form-layer__list {
+	color: #000;
+	background: #fff;
+	outline: 1px solid var(--form-tint);
+}
+
+.pdf-form-layer__sign {
+	cursor: pointer;
+}

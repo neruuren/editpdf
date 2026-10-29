@@ -93,7 +93,8 @@ const _handle =
 
 // 🔹 Tampon image : petit fichier (STAMP_MAX_SIZE_MB), gardé en mémoire le
 // temps de le normaliser (pdfService.normalizeStampImage, qui vérifie aussi
-// la signature PNG ou JPEG). Un champ « name » facultatif l'accompagne.
+// la signature PNG ou JPEG). Deux champs facultatifs l'accompagnent,
+// avant le fichier : « name » et « kind » (tampon ou signature).
 const STAMP_MAX_SIZE_MB = 5;
 const STAMP_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg']);
 const STAMP_MIME_TYPES = new Set([
@@ -109,10 +110,10 @@ const stampUploader = multer({
 	limits: {
 		fileSize: STAMP_MAX_SIZE_MB * 1024 * 1024,
 		files: 1,
-		fields: 1,
+		fields: 2,
 		// Nom de 60 caractères, jusqu'à 4 octets chacun en UTF-8.
 		fieldSize: 240,
-		parts: 2,
+		parts: 3,
 	},
 	fileFilter: (req, file, cb) => {
 		const isImage =

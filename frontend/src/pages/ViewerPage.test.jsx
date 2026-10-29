@@ -142,6 +142,66 @@ function fakeAnnotations() {
 	});
 	const list = (index) => [...(pages.get(index) ?? [])];
 	const images = new Map();
+	const fields = new Map();
+	const fieldList = (index) =>
+		fields.get(index) ??
+		(index === 0
+			? [
+					{
+						id: 40,
+						type: 'text',
+						name: 'nom',
+						label: 'Votre nom',
+						rect: [100, 400, 300, 420],
+						isReadOnly: false,
+						isRequired: true,
+						value: '',
+						isMultiline: false,
+						isPassword: false,
+						isComb: false,
+						maxLength: 0,
+						fontSize: 12,
+						align: 'left',
+					},
+					{
+						id: 41,
+						type: 'checkbox',
+						name: 'accord',
+						label: 'J’accepte',
+						rect: [100, 430, 114, 444],
+						isReadOnly: false,
+						isRequired: false,
+						isOn: false,
+					},
+					{
+						id: 42,
+						type: 'combobox',
+						name: 'ville',
+						label: 'Ville',
+						rect: [100, 460, 300, 480],
+						isReadOnly: false,
+						isRequired: false,
+						value: '75',
+						options: [
+							{ value: '75', label: 'Paris' },
+							{ value: '69', label: 'Lyon' },
+						],
+						isEditable: false,
+						isMultiSelect: false,
+						fontSize: 10,
+					},
+					{
+						id: 43,
+						type: 'signature',
+						name: 'signature',
+						label: 'Signature du client',
+						rect: [100, 500, 300, 550],
+						isReadOnly: false,
+						isRequired: false,
+						isSigned: false,
+					},
+				]
+			: []);
 	let pageCount = 3;
 	const layout = (count) => ({
 		pageCount: count,
@@ -330,6 +390,38 @@ function fakeAnnotations() {
 			return { count: 1, ...history(null), layout: layout(pageCount) };
 		}),
 		getPageLayers: vi.fn(async () => ({ headers: 0, watermarks: 0 })),
+		// Formulaire (T6a) : quatre champs sur la page 1.
+		getFormFields: vi.fn(async (index) => fieldList(index)),
+		setFieldValue: vi.fn(async (index, id, value) => {
+			fields.set(
+				index,
+				fieldList(index).map((field) =>
+					field.id !== id
+						? field
+						: 'isOn' in field
+							? { ...field, isOn: value }
+							: { ...field, value },
+				),
+			);
+			position += 1;
+			return { pages: [index], ...history(null) };
+		}),
+		signField: vi.fn(async (index, id) => {
+			fields.set(
+				index,
+				fieldList(index).map((field) =>
+					field.id === id ? { ...field, isSigned: true } : field,
+				),
+			);
+			position += 1;
+			return { id: nextId++, pages: [index], ...history(null) };
+		}),
+		flattenForm: vi.fn(async () => {
+			const count = fieldList(0).length;
+			fields.set(0, []);
+			if (count > 0) position += 1;
+			return { count, ...history(null) };
+		}),
 		// Images du contenu (T4b) : une photo sur chaque page.
 		getImages: vi.fn(async (index) => imageList(index)),
 		moveImage: vi.fn(async (index, { target, rect }) => {
@@ -1621,6 +1713,186 @@ describe('ViewerPage : mise en page', () => {
 		);
 		await waitFor(() =>
 			expect(pdf.removePageLayer).toHaveBeenCalledWith([0, 1, 2], 'Watermark'),
+		);
+	});
+});
+
+describe('ViewerPage : formulaires et signature', () => {
+	const SIGNATURE = {
+		id: '5f0c4a8e-3b1d-4c2e-9a7f-1e2d3c4b5a69',
+		name: 'Grégory',
+		kind: 'signature',
+		width: 300,
+		height: 80,
+		size: 1000,
+		createdAt: '2026-03-01T10:00:00.000Z',
+	};
+	const LOGO = { ...SIGNATURE, id: 'b1', name: 'Logo', kind: 'stamp' };
+
+	function signatureRoutes(extra = {}) {
+		return {
+			'GET /api/v1/stamps': ok([LOGO, SIGNATURE]),
+			[`GET /api/v1/stamps/${SIGNATURE.id}/image`]: { status: 200, body: null },
+			...extra,
+		};
+	}
+
+	it('remplit les champs en lecture, puis enregistre une révision « form »', async () => {
+		let body;
+		const { pdf } = await openViewer(RAPPORT, {
+			'POST /api/v1/documents/rapport/revisions': (options) => {
+				body = options.body;
+				return ok({ ...RAPPORT, currentRevision: 1 }, 201);
+			},
+		});
+		pdf.save.mockResolvedValue({
+			data: new Uint8Array([0x25, 0x50, 0x44, 0x46]),
+			origin: 'form',
+		});
+		const name = await screen.findByRole('textbox', { name: 'Votre nom' });
+		expect(name).toBeRequired();
+		await userEvent.type(name, 'Grégory{Enter}');
+		await waitFor(() =>
+			expect(pdf.setFieldValue).toHaveBeenCalledWith(0, 40, 'Grégory'),
+		);
+		await userEvent.click(screen.getByRole('checkbox', { name: 'J’accepte' }));
+		expect(pdf.setFieldValue).toHaveBeenCalledWith(0, 41, true);
+		await userEvent.selectOptions(
+			screen.getByRole('combobox', { name: 'Ville' }),
+			'Lyon',
+		);
+		expect(pdf.setFieldValue).toHaveBeenCalledWith(0, 42, '69');
+
+		const bar = await screen.findByRole('toolbar', {
+			name: 'Modifications non enregistrées',
+		});
+		await userEvent.click(
+			within(bar).getByRole('button', { name: 'Enregistrer' }),
+		);
+		await waitFor(() => expect(body.get('origin')).toBe('form'));
+	});
+
+	it('Échap abandonne la saisie d’un champ sans rien écrire', async () => {
+		const { pdf } = await openViewer();
+		const name = await screen.findByRole('textbox', { name: 'Votre nom' });
+		await userEvent.type(name, 'Brouillon{Escape}');
+		expect(name).toHaveValue('');
+		expect(pdf.setFieldValue).not.toHaveBeenCalled();
+	});
+
+	it('signe un champ de signature avec une signature gardée sur le serveur', async () => {
+		const { pdf } = await openViewer(RAPPORT, signatureRoutes());
+		await userEvent.click(
+			await screen.findByRole('button', {
+				name: 'Signer : Signature du client',
+			}),
+		);
+		const dialog = await screen.findByRole('dialog', { name: 'Signer' });
+		expect(
+			within(dialog).getByText(/dans le champ « Signature du client »/),
+		).toBeInTheDocument();
+		// Les tampons ne sont pas des signatures.
+		expect(within(dialog).queryByText('Logo')).not.toBeInTheDocument();
+		await userEvent.click(
+			await within(dialog).findByRole('button', { name: 'Grégory' }),
+		);
+		await waitFor(() =>
+			expect(pdf.signField).toHaveBeenCalledWith(
+				0,
+				43,
+				expect.any(Uint8Array),
+				{ author: 'Grégory' },
+			),
+		);
+		await waitFor(() =>
+			expect(
+				screen.queryByRole('button', { name: 'Signer : Signature du client' }),
+			).not.toBeInTheDocument(),
+		);
+	});
+
+	it('« Signer » charge la signature dans l’outil Tampon, à poser d’un clic', async () => {
+		await openViewer(RAPPORT, signatureRoutes());
+		await userEvent.click(screen.getByRole('button', { name: 'Signer' }));
+		const dialog = await screen.findByRole('dialog', { name: 'Signer' });
+		await userEvent.click(
+			await within(dialog).findByRole('button', { name: 'Grégory' }),
+		);
+		expect(
+			await screen.findByText(/Touchez la page à l’endroit où poser/),
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole('toolbar', { name: /annotation/i }),
+		).toBeInTheDocument();
+	});
+
+	it('crée une signature saisie et l’envoie au serveur comme signature', async () => {
+		let body;
+		await openViewer(RAPPORT, {
+			'GET /api/v1/stamps': ok([]),
+			'POST /api/v1/stamps': (options) => {
+				body = options.body;
+				return ok(SIGNATURE, 201);
+			},
+		});
+		vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+			drawImage: vi.fn(),
+			measureText: () => ({ width: 200 }),
+			fillText: vi.fn(),
+			getImageData: (x, y, width, height) => ({
+				data: new Uint8ClampedArray(width * height * 4).fill(255),
+			}),
+		});
+		vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(
+			(callback) => callback(new Blob(['png'], { type: 'image/png' })),
+		);
+		globalThis.FontFace ??= class {
+			load() {
+				return Promise.resolve(this);
+			}
+		};
+		document.fonts ??= { add: vi.fn() };
+		await userEvent.click(screen.getByRole('button', { name: 'Signer' }));
+		const dialog = await screen.findByRole('dialog', { name: 'Signer' });
+		await userEvent.click(
+			within(dialog).getByRole('radio', { name: 'Saisir' }),
+		);
+		await userEvent.type(
+			within(dialog).getByRole('textbox', { name: 'Votre nom' }),
+			'Grégory Day',
+		);
+		await userEvent.click(
+			within(dialog).getByRole('button', { name: 'Enregistrer et signer' }),
+		);
+		await waitFor(() => expect(body.get('kind')).toBe('signature'));
+		expect(body.get('name')).toBe('Grégory Day');
+		expect(body.get('file').type).toBe('image/png');
+	});
+
+	it('aplatit le formulaire après confirmation', async () => {
+		const { pdf } = await openViewer();
+		await screen.findByRole('textbox', { name: 'Votre nom' });
+		await userEvent.click(
+			screen.getByRole('button', { name: 'Plus d’actions' }),
+		);
+		// jsdom n'a pas l'API Popover : le menu reste « caché ».
+		await userEvent.click(
+			screen.getByRole('button', {
+				name: /Aplatir le formulaire/,
+				hidden: true,
+			}),
+		);
+		const dialog = await screen.findByRole('dialog', {
+			name: 'Aplatir le formulaire ?',
+		});
+		await userEvent.click(
+			within(dialog).getByRole('button', { name: 'Aplatir' }),
+		);
+		await waitFor(() => expect(pdf.flattenForm).toHaveBeenCalled());
+		await waitFor(() =>
+			expect(
+				screen.queryByRole('textbox', { name: 'Votre nom' }),
+			).not.toBeInTheDocument(),
 		);
 	});
 });

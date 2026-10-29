@@ -21,7 +21,8 @@ const PRESET_ZOOMS = [
 // « Pages » (`isOrganizing`, la grille des pages et PageToolbar),
 // panneaux (navigation, informations) et un menu « Plus d'actions »
 // (rotation d'affichage, présentation, impression, aplatir les
-// annotations si `onFlatten`, téléchargement ; popover natif). `zoom` : 'width' | 'page' | facteur ;
+// annotations si `onFlatten`, aplatir le formulaire si `onFlattenForm`,
+// téléchargement ; popover natif), « Signer » si `onSign`. `zoom` : 'width' | 'page' | facteur ;
 // `scale` : échelle effective, pour afficher le pourcentage.
 function ViewerToolbar({
 	document,
@@ -52,6 +53,8 @@ function ViewerToolbar({
 	onPresent,
 	onPrint,
 	onFlatten,
+	onFlattenForm,
+	onSign,
 }) {
 	const pageInputId = useId();
 	const zoomSelectId = useId();
@@ -239,6 +242,26 @@ function ViewerToolbar({
 								<path d="M13.5 6.5l4 4" />
 							</svg>
 						</button>
+						{onSign && (
+							<button
+								type="button"
+								className="button button--ghost viewer-toolbar__icon"
+								aria-label="Signer"
+								title="Signer"
+								onClick={onSign}
+							>
+								{/* Plume et trait de signature */}
+								<svg
+									className="viewer-toolbar__svg"
+									viewBox="0 0 24 24"
+									aria-hidden="true"
+								>
+									<path d="M14 4l6 6-8 8H6v-6z" />
+									<path d="M11 7l6 6" />
+									<path d="M3 21c3-2 5 1 8-1" />
+								</svg>
+							</button>
+						)}
 						<button
 							type="button"
 							className="button button--ghost viewer-toolbar__icon"
@@ -337,6 +360,15 @@ function ViewerToolbar({
 									onClick={() => handleMenuAction(onFlatten)}
 								>
 									<span aria-hidden="true">▤</span> Aplatir les annotations…
+								</button>
+							)}
+							{onFlattenForm && (
+								<button
+									type="button"
+									className="button button--ghost viewer-toolbar__menu-item"
+									onClick={() => handleMenuAction(onFlattenForm)}
+								>
+									<span aria-hidden="true">▦</span> Aplatir le formulaire…
 								</button>
 							)}
 						</>

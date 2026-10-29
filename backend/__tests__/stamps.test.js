@@ -23,9 +23,10 @@ afterAll(removeDataDir);
 const UNKNOWN_ID = '00000000-0000-4000-8000-000000000000';
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 
-function upload(data, filename = 'logo.png', name) {
+function upload(data, filename = 'logo.png', name, kind) {
 	const req = agent.post('/api/v1/stamps');
 	if (name !== undefined) req.field('name', name);
+	if (kind !== undefined) req.field('kind', kind);
 	return req.attach('file', data, filename);
 }
 
@@ -186,5 +187,48 @@ describe('tampons image', () => {
 			(await agent.patch(`/api/v1/stamps/${UNKNOWN_ID}`).send({ name: 'A' }))
 				.status,
 		).toBe(404);
+	});
+});
+
+describe('signatures', () => {
+	it('ajoute (201) une signature, listée avec sa sorte', async () => {
+		const stamp = await create({ gray: 10 }, 'logo.png');
+		expect(stamp.kind).toBe('stamp');
+		const response = await upload(
+			await buildImage({ gray: 30, alpha: true }),
+			'signature.png',
+			'Grégory',
+			'signature',
+		);
+		expect(response.status).toBe(201);
+		expect(response.body.data).toMatchObject({
+			name: 'Grégory',
+			kind: 'signature',
+		});
+		const image = await agent.get(
+			`/api/v1/stamps/${response.body.data.id}/image`,
+		);
+		expect(image.headers['cache-control']).toBe('private, no-store');
+		const logo = await agent.get(`/api/v1/stamps/${stamp.id}/image`);
+		expect(logo.headers['cache-control']).toBe('private, no-cache');
+		const { body } = await agent.get('/api/v1/stamps');
+		expect(body.data.map(({ kind }) => kind).sort()).toEqual([
+			'signature',
+			'stamp',
+		]);
+	});
+
+	it('refuse (400) une sorte inconnue et (409) la même signature deux fois', async () => {
+		const image = await buildImage({ gray: 40 });
+		expect((await upload(image, 's.png', 'A', 'logo')).status).toBe(400);
+		expect((await upload(image, 's.png', 'A', 'signature')).status).toBe(201);
+		const again = await upload(image, 's.png', 'B', 'signature');
+		expect(again.status).toBe(409);
+		expect(again.body.error).toBe('Cette signature existe déjà');
+		const asStamp = await upload(image, 's.png', 'C');
+		expect(asStamp.status).toBe(409);
+		expect(asStamp.body.error).toBe(
+			'Cette image est déjà une de vos signatures',
+		);
 	});
 });
