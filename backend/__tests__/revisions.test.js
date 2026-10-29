@@ -213,6 +213,21 @@ describe('POST /api/v1/documents/:id/revisions', () => {
 		expect((await search('modifie')).body.count).toBe(1);
 	});
 
+	it('enregistre l’origine « organize » de pages réorganisées dans la visionneuse', async () => {
+		const document = await uploadPdf(agent);
+		const response = await agent
+			.post(`/api/v1/documents/${document.id}/revisions`)
+			.field('origin', 'organize')
+			.field('baseRevision', '0')
+			.attach('file', await buildPdf({ pages: 2 }), 'pages.pdf');
+		expect(response.status).toBe(201);
+		const revisions = await listRevisions(document.id);
+		expect(revisions.body.data[0]).toMatchObject({
+			number: 1,
+			origin: 'organize',
+		});
+	});
+
 	it('refuse (409) un enregistrement parti d’une révision qui n’est plus la courante', async () => {
 		const document = await uploadPdf(agent);
 		await sendVersion(document.id, { text: 'Ailleurs' });

@@ -5,6 +5,9 @@ import StampDialog from './StampDialog';
 import ConfirmDialog from './ConfirmDialog';
 import DocumentDetails from './DocumentDetails';
 import NotePopover from './NotePopover';
+import PageDialogs from './PageDialogs';
+import PageToolbar from './PageToolbar';
+import PdfPageGrid from './PdfPageGrid';
 import PdfPages from './PdfPages';
 import PdfPasswordForm from './PdfPasswordForm';
 import PdfPresentation from './PdfPresentation';
@@ -32,6 +35,7 @@ import {
 import { useDocumentSearch } from '../hooks/useDocumentSearch';
 import { usePdfDocument } from '../hooks/usePdfDocument';
 import { useReadingPosition } from '../hooks/useReadingPosition';
+import { usePageTools } from '../hooks/usePageTools';
 import { useTextEditTools } from '../hooks/useTextEditTools';
 import { useTextSelection } from '../hooks/useTextSelection';
 import {
@@ -91,19 +95,32 @@ function PdfViewer({ document }) {
 		document.id,
 		heldRevision ?? document.currentRevision,
 	);
-	const pdf = pdfState.status === 'ready' ? pdfState.pdf : null;
+	const openedPdf = pdfState.status === 'ready' ? pdfState.pdf : null;
 	const author = useSession().data?.annotationAuthor ?? '';
 	const editor = useAnnotationEditor({
 		document,
-		pdf,
+		pdf: openedPdf,
 		revision: pdfState.revision,
 		author,
 	});
+	// Pages réorganisées (T5a) : leur nouvelle disposition remplace celle du
+	// PDF ouvert ; un nouvel objet, pour que tout ce qui en dépend se relise.
+	const { layout } = editor;
+	const pdf = useMemo(
+		() => (openedPdf && layout ? { ...openedPdf, ...layout } : openedPdf),
+		[openedPdf, layout],
+	);
 	const isEditLocked = editor.isLocked || Boolean(pdfState.isReloading);
 	const tools = useAnnotationTools(editor, { isLocked: isEditLocked });
 	// Mode « Modifier » (texte du contenu, T4a) : exclusif du mode annotation,
 	// avec le même historique et le même enregistrement.
 	const textTools = useTextEditTools(editor, { isLocked: isEditLocked });
+	// Mode « Pages » (organisation des pages, T5a) : exclusif lui aussi.
+	const pageTools = usePageTools(editor, {
+		pageCount: pdf?.pageCount ?? 0,
+		isLocked: isEditLocked,
+	});
+	const pageDialogsRef = useRef(null);
 	const isStampTool = tools.isAnnotating && tools.tool === 'stamp';
 	const stamps = useStamps({ isEnabled: isStampTool });
 	const stampList = stamps.data ?? [];
@@ -157,6 +174,7 @@ function PdfViewer({ document }) {
 	}
 
 	const pageCount = pdf?.pageCount ?? document.pageCount;
+	if (pdf && page > pdf.pageCount - 1) setPage(pdf.pageCount - 1);
 	const search = useDocumentSearch(pdf, isSearchOpen ? searchQuery : '');
 	const activeResult = chosenResult ?? initialResult(search, searchStartPage);
 	const active =
@@ -509,12 +527,27 @@ function PdfViewer({ document }) {
 
 	function handleToggleAnnotate() {
 		if (textTools.isEditingText) textTools.setIsEditingText(false);
+		if (pageTools.isOrganizing) pageTools.setIsOrganizing(false);
 		tools.toggleAnnotating();
 	}
 
 	function handleToggleEditText() {
 		if (tools.isAnnotating) tools.toggleAnnotating();
+		if (pageTools.isOrganizing) pageTools.setIsOrganizing(false);
 		textTools.toggleEditing();
+	}
+
+	function handleToggleOrganize() {
+		if (tools.isAnnotating) tools.toggleAnnotating();
+		if (textTools.isEditingText) textTools.setIsEditingText(false);
+		pageTools.toggleOrganizing();
+	}
+
+	// Une page de la grille ouverte (Entrée, double clic) : retour aux pages,
+	// à celle-ci.
+	function handleOpenPage(index) {
+		setPage(index);
+		pageTools.setIsOrganizing(false);
 	}
 
 	// Annuler / rétablir depuis la barre « Modifier » : la saisie en cours
@@ -562,6 +595,7 @@ function PdfViewer({ document }) {
 	// Aplatir : la barre d'annotation s'ouvre, pour enregistrer (ou annuler).
 	async function handleFlattenConfirm() {
 		textTools.setIsEditingText(false);
+		pageTools.setIsOrganizing(false);
 		tools.setIsAnnotating(true);
 		const result = await editor.flatten();
 		if (result?.count === 0) setNotice('Aucune annotation à aplatir.');
@@ -604,6 +638,26 @@ function PdfViewer({ document }) {
 					</p>
 				);
 			default:
+				if (pageTools.isOrganizing) {
+					return (
+						<PdfPageGrid
+							pdf={pdf}
+							pageVersion={editor.pageVersion}
+							selection={pageTools.selection}
+							isLocked={isEditLocked}
+							onSelect={pageTools.select}
+							onSelectAll={pageTools.selectAll}
+							onClearSelection={pageTools.clearSelection}
+							onMove={pageTools.moveTo}
+							onStep={pageTools.step}
+							onDelete={pageTools.remove}
+							onOpen={handleOpenPage}
+							onDropFile={(file, at) =>
+								pageDialogsRef.current?.insertFile(file, at)
+							}
+						/>
+					);
+				}
 				return (
 					<PdfPages
 						ref={pagesRef}
@@ -637,6 +691,7 @@ function PdfViewer({ document }) {
 				isBookmarked={isBookmarked}
 				isAnnotating={tools.isAnnotating}
 				isEditingText={textTools.isEditingText}
+				isOrganizing={pageTools.isOrganizing}
 				hasUnsavedChanges={editor.isDirty}
 				onGoToPage={goToPage}
 				onZoomChange={setZoom}
@@ -648,6 +703,7 @@ function PdfViewer({ document }) {
 				onToggleBookmark={handleToggleBookmark}
 				onToggleAnnotate={handleToggleAnnotate}
 				onToggleEditText={handleToggleEditText}
+				onToggleOrganize={handleToggleOrganize}
 				onPresent={() => setIsPresenting(true)}
 				onPrint={openPrint}
 				onFlatten={
@@ -731,6 +787,35 @@ function PdfViewer({ document }) {
 					onClose={handleToggleEditText}
 				/>
 			)}
+			{pdf && pageTools.isOrganizing && (
+				<PageToolbar
+					selectedCount={pageTools.selected.length}
+					pageCount={pdf.pageCount}
+					canStepBack={pageTools.selected[0] > 0}
+					canStepForward={pageTools.selected.at(-1) < pdf.pageCount - 1}
+					onSelectAll={pageTools.selectAll}
+					onRotate={pageTools.rotate}
+					onStep={pageTools.step}
+					onDuplicate={pageTools.duplicate}
+					onDelete={pageTools.remove}
+					onInsertBlank={pageTools.insertBlank}
+					onInsertFromLibrary={() =>
+						pageDialogsRef.current?.insertFromLibrary()
+					}
+					onInsertFile={(file) => pageDialogsRef.current?.insertFile(file)}
+					onExtract={() => pageDialogsRef.current?.extract()}
+					onSplit={() => pageDialogsRef.current?.split()}
+					canUndo={editor.canUndo && !isEditLocked}
+					canRedo={editor.canRedo && !isEditLocked}
+					onUndo={tools.undo}
+					onRedo={tools.redo}
+					isDirty={editor.isDirty}
+					isSaving={save.isPending || Boolean(pdfState.isReloading)}
+					isLocked={isEditLocked}
+					onSave={() => saveAnnotations()}
+					onClose={handleToggleOrganize}
+				/>
+			)}
 			{textTools.isEditingText && textTools.notice && (
 				<p className="pdf-viewer__notice-bar" role="status">
 					{textTools.notice}
@@ -743,11 +828,13 @@ function PdfViewer({ document }) {
 			)}
 			{editor.error && (
 				<p className="pdf-viewer__error" role="alert">
-					{!textTools.isEditingText
-						? 'Annotation non modifiée'
-						: textTools.tool === 'image'
-							? 'Image non modifiée'
-							: 'Texte non modifié'}{' '}
+					{pageTools.isOrganizing
+						? 'Pages non modifiées'
+						: !textTools.isEditingText
+							? 'Annotation non modifiée'
+							: textTools.tool === 'image'
+								? 'Image non modifiée'
+								: 'Texte non modifié'}{' '}
 					: {editor.error.message}
 				</p>
 			)}
@@ -804,6 +891,14 @@ function PdfViewer({ document }) {
 					</aside>
 				)}
 			</div>
+			{pdf && (
+				<PageDialogs
+					ref={pageDialogsRef}
+					pdf={pdf}
+					document={document}
+					pageTools={pageTools}
+				/>
+			)}
 			{pdf && (
 				<PrintDialog
 					ref={printRef}

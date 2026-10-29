@@ -49,6 +49,15 @@ function sendPdf(res, next, { filePath, downloadName }) {
 	});
 }
 
+// @desc    Fusionner des documents de la bibliothèque en un nouveau
+//          ({ documentIds, title? })
+// @route   POST /api/v1/documents/merge
+// @access  Private
+exports.mergeDocuments = asyncHandler(async (req, res) => {
+	const document = await documentService.mergeDocuments(req.body);
+	res.status(201).json({ success: true, data: document });
+});
+
 // @desc    Lister tous les documents (tri et filtre faits côté client)
 // @route   GET /api/v1/documents
 // @access  Private

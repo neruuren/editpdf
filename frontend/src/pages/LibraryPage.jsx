@@ -1,9 +1,10 @@
-import { useCallback, useId, useMemo, useRef } from 'react';
+import { useCallback, useId, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import CollectionsDialog from '../components/CollectionsDialog';
 import DocumentGrid from '../components/DocumentGrid';
 import DocumentTable from '../components/DocumentTable';
 import LibraryFilters from '../components/LibraryFilters';
+import MergeDialog from '../components/MergeDialog';
 import StatusMessage from '../components/StatusMessage';
 import UploadReport from '../components/UploadReport';
 import { useCollections } from '../hooks/useCollections';
@@ -30,7 +31,8 @@ const NO_DOCUMENTS = [];
 // 🔹 Page d'accueil : la bibliothèque. Import par le bouton ou en déposant
 // des PDF n'importe où sur la page ; recherche (titre, auteur, sujet, nom de
 // fichier, et contenu des PDF côté serveur), filtres par collection et
-// étiquettes, tri et vue (grille ou liste) mémorisés sur l'appareil.
+// étiquettes, tri et vue (grille ou liste) mémorisés sur l'appareil ;
+// mode « Sélectionner » pour fusionner des documents (MergeDialog).
 // Recherche et filtres sont dans l'URL (?q=…&collection=…&tag=…) : ils
 // sont retrouvés en revenant d'une fiche.
 function LibraryPage() {
@@ -51,6 +53,10 @@ function LibraryPage() {
 	});
 	const fileInputRef = useRef(null);
 	const collectionsDialogRef = useRef(null);
+	const mergeDialogRef = useRef(null);
+	// Mode sélection (fusion, T5a) : ids dans l'ordre où ils ont été cochés,
+	// null hors de ce mode.
+	const [selectedIds, setSelectedIds] = useState(null);
 	const filterId = useId();
 	const sortId = useId();
 
@@ -152,6 +158,14 @@ function LibraryPage() {
 		collectionsDialogRef.current.showModal();
 	}
 
+	function handleToggleSelect(document) {
+		setSelectedIds((ids) =>
+			ids.includes(document.id)
+				? ids.filter((id) => id !== document.id)
+				: [...ids, document.id],
+		);
+	}
+
 	function handleSortChange(event) {
 		setSort(event.target.value);
 	}
@@ -188,10 +202,22 @@ function LibraryPage() {
 				</p>
 			);
 		}
+		const selectionProps = {
+			selectedIds,
+			onToggleSelect: handleToggleSelect,
+		};
 		return view === 'list' ? (
-			<DocumentTable documents={visibleDocuments} contentHits={contentHits} />
+			<DocumentTable
+				documents={visibleDocuments}
+				contentHits={contentHits}
+				{...selectionProps}
+			/>
 		) : (
-			<DocumentGrid documents={visibleDocuments} contentHits={contentHits} />
+			<DocumentGrid
+				documents={visibleDocuments}
+				contentHits={contentHits}
+				{...selectionProps}
+			/>
 		);
 	}
 
@@ -277,6 +303,14 @@ function LibraryPage() {
 							</button>
 						))}
 					</div>
+					<button
+						type="button"
+						className="button"
+						aria-pressed={selectedIds !== null}
+						onClick={() => setSelectedIds(selectedIds ? null : [])}
+					>
+						Sélectionner
+					</button>
 				</div>
 			)}
 
@@ -295,7 +329,44 @@ function LibraryPage() {
 				/>
 			)}
 
+			{selectedIds && (
+				<div
+					className="library-page__selection"
+					role="region"
+					aria-label="Sélection"
+				>
+					<p className="library-page__selection-count" aria-live="polite">
+						{selectedIds.length === 0
+							? 'Cochez les documents à fusionner'
+							: `${selectedIds.length} ${selectedIds.length > 1 ? 'documents sélectionnés' : 'document sélectionné'}`}
+					</p>
+					<button
+						type="button"
+						className="button button--primary"
+						onClick={() => mergeDialogRef.current?.showModal()}
+						disabled={selectedIds.length < 2}
+					>
+						Fusionner…
+					</button>
+					<button
+						type="button"
+						className="button button--ghost"
+						onClick={() => setSelectedIds(null)}
+					>
+						Terminer la sélection
+					</button>
+				</div>
+			)}
+
 			{renderContent()}
+
+			<MergeDialog
+				ref={mergeDialogRef}
+				documents={(selectedIds ?? []).flatMap(
+					(id) => allDocuments.find((document) => document.id === id) ?? [],
+				)}
+				onMerged={() => setSelectedIds(null)}
+			/>
 
 			<CollectionsDialog
 				ref={collectionsDialogRef}

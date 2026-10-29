@@ -126,3 +126,44 @@ describe('signets', () => {
 		expect((await list(document.id)).status).toBe(404);
 	});
 });
+
+describe('recalage après une réorganisation des pages', () => {
+	function remap(id, body) {
+		return agent.post(`/api/v1/documents/${id}/bookmarks/remap`).send(body);
+	}
+
+	it('les signets suivent leur page, celui d’une page supprimée disparaît', async () => {
+		const document = await uploadPdf(agent, { pages: 5 });
+		await setBookmark(document.id, 1, { label: 'Début' });
+		await setBookmark(document.id, 2);
+		await setBookmark(document.id, 4, { label: 'Annexe' });
+		const created = (await list(document.id)).body.data[0].createdAt;
+		// Pages 1 et 2 échangées, page 4 supprimée (le document garde 5 pages
+		// ici : seule la correspondance compte).
+		const response = await remap(document.id, {
+			pageMap: [1, 0, 2, -1, 3],
+		});
+		expect(response.status).toBe(200);
+		expect(response.body.data).toMatchObject([
+			{ page: 1, label: null },
+			{ page: 2, label: 'Début', createdAt: created },
+		]);
+	});
+
+	it('refuse (400) une correspondance invalide', async () => {
+		const document = await uploadPdf(agent, { pages: 3 });
+		await setBookmark(document.id, 1);
+		for (const pageMap of [
+			'x',
+			[0, 0, 1],
+			[0, 1, 3],
+			[0, 1.5, 2],
+			[-2, 0, 1],
+		]) {
+			expect((await remap(document.id, { pageMap })).status).toBe(400);
+		}
+		expect((await remap(document.id, {})).status).toBe(400);
+		expect((await list(document.id)).body.data).toMatchObject([{ page: 1 }]);
+		expect((await remap(UNKNOWN_ID, { pageMap: [] })).status).toBe(404);
+	});
+});

@@ -345,3 +345,89 @@ describe('LibraryPage', () => {
 		expect(await screen.findByLabelText('Collection')).toBeInTheDocument();
 	});
 });
+
+describe('LibraryPage : fusionner', () => {
+	const DEVIS = doc({ id: 'devis', title: 'Devis', pageCount: 3 });
+
+	it('sélectionne des documents, les ordonne et les fusionne', async () => {
+		let body;
+		mockFetch({
+			...BASE_ROUTES,
+			'GET /api/v1/documents': listResponse([BAIL, DEVIS, IMPOTS]),
+			'POST /api/v1/documents/merge': (options) => {
+				body = JSON.parse(options.body);
+				return {
+					status: 201,
+					body: {
+						success: true,
+						data: doc({ id: 'dossier', title: 'Dossier', pageCount: 5 }),
+					},
+				};
+			},
+		});
+		renderWithProviders(<App />, { route: '/' });
+		await screen.findByRole('link', { name: 'Devis' });
+		expect(screen.queryByRole('checkbox')).toBeNull();
+		await userEvent.click(screen.getByRole('button', { name: 'Sélectionner' }));
+		const merge = screen.getByRole('button', { name: 'Fusionner…' });
+		expect(merge).toBeDisabled();
+		await userEvent.click(
+			screen.getByRole('checkbox', { name: 'Sélectionner « Devis »' }),
+		);
+		await userEvent.click(
+			screen.getByRole('checkbox', {
+				name: 'Sélectionner « Contrat de bail »',
+			}),
+		);
+		expect(screen.getByText('2 documents sélectionnés')).toBeInTheDocument();
+		await userEvent.click(merge);
+		const dialog = screen.getByRole('dialog', {
+			name: 'Fusionner des documents',
+		});
+		await userEvent.click(
+			within(dialog).getByRole('button', {
+				name: 'Monter « Contrat de bail »',
+			}),
+		);
+		const title = within(dialog).getByRole('textbox', {
+			name: 'Titre du nouveau document',
+		});
+		await userEvent.clear(title);
+		await userEvent.type(title, 'Dossier');
+		await userEvent.click(
+			within(dialog).getByRole('button', { name: 'Fusionner' }),
+		);
+		expect(
+			await within(dialog).findByRole('link', { name: 'Dossier' }),
+		).toHaveAttribute('href', '/documents/dossier');
+		expect(body).toEqual({ documentIds: ['bail', 'devis'], title: 'Dossier' });
+		// La sélection est terminée.
+		expect(screen.queryByRole('button', { name: 'Fusionner…' })).toBeNull();
+	});
+
+	it('refuse un document protégé par mot de passe', async () => {
+		mockFetch({
+			...BASE_ROUTES,
+			'GET /api/v1/documents': listResponse([BAIL, IMPOTS]),
+		});
+		renderWithProviders(<App />, { route: '/' });
+		await screen.findByRole('link', { name: 'Impôts 2026' });
+		await userEvent.click(screen.getByRole('button', { name: 'Sélectionner' }));
+		await userEvent.click(
+			screen.getByRole('checkbox', { name: 'Sélectionner « Impôts 2026 »' }),
+		);
+		await userEvent.click(
+			screen.getByRole('checkbox', {
+				name: 'Sélectionner « Contrat de bail »',
+			}),
+		);
+		await userEvent.click(screen.getByRole('button', { name: 'Fusionner…' }));
+		const dialog = screen.getByRole('dialog', {
+			name: 'Fusionner des documents',
+		});
+		expect(within(dialog).getByText(/ne se fusionne pas/)).toBeInTheDocument();
+		expect(
+			within(dialog).getByRole('button', { name: 'Fusionner' }),
+		).toBeDisabled();
+	});
+});

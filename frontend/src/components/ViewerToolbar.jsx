@@ -17,7 +17,8 @@ const PRESET_ZOOMS = [
 // navigation (page précédente / suivante, aller à la page), zoom (crans,
 // largeur, page entière, pourcentages), recherche, signet de la page
 // affichée, mode annotation (`isAnnotating`, la barre AnnotationToolbar),
-// mode « Modifier » (`isEditingText`, la barre TextEditToolbar),
+// mode « Modifier » (`isEditingText`, la barre TextEditToolbar), mode
+// « Pages » (`isOrganizing`, la grille des pages et PageToolbar),
 // panneaux (navigation, informations) et un menu « Plus d'actions »
 // (rotation d'affichage, présentation, impression, aplatir les
 // annotations si `onFlatten`, téléchargement ; popover natif). `zoom` : 'width' | 'page' | facteur ;
@@ -35,6 +36,7 @@ function ViewerToolbar({
 	isBookmarked,
 	isAnnotating,
 	isEditingText,
+	isOrganizing,
 	hasUnsavedChanges,
 	onGoToPage,
 	onZoomChange,
@@ -46,6 +48,7 @@ function ViewerToolbar({
 	onToggleBookmark,
 	onToggleAnnotate,
 	onToggleEditText,
+	onToggleOrganize,
 	onPresent,
 	onPrint,
 	onFlatten,
@@ -260,6 +263,31 @@ function ViewerToolbar({
 								<path d="M7 20h5" />
 								<path d="M18 9v11" />
 								<path d="M16 9h4M16 20h4" />
+							</svg>
+						</button>
+						<button
+							type="button"
+							className="button button--ghost viewer-toolbar__icon"
+							aria-label={
+								hasUnsavedChanges
+									? 'Organiser les pages (modifications non enregistrées)'
+									: 'Organiser les pages'
+							}
+							title="Organiser les pages"
+							aria-pressed={isOrganizing}
+							onClick={onToggleOrganize}
+							data-unsaved={hasUnsavedChanges || undefined}
+						>
+							{/* Quatre pages en grille */}
+							<svg
+								className="viewer-toolbar__svg"
+								viewBox="0 0 24 24"
+								aria-hidden="true"
+							>
+								<rect x="4" y="3" width="7" height="8" rx="1" />
+								<rect x="13" y="3" width="7" height="8" rx="1" />
+								<rect x="4" y="13" width="7" height="8" rx="1" />
+								<rect x="13" y="13" width="7" height="8" rx="1" />
 							</svg>
 						</button>
 					</>

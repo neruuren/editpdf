@@ -6,12 +6,24 @@ import './DocumentTable.css';
 // 🔹 Vue « liste » de la bibliothèque : un tableau compact. Le tri se
 // choisit au-dessus (même réglage que la grille), pas dans les en-têtes.
 // Un document trouvé par son contenu montre l'extrait sous son titre.
-function DocumentTable({ documents, contentHits }) {
+// Mode sélection (`selectedIds` : tableau, null hors de ce mode) : une
+// colonne de cases à cocher (`onToggleSelect(document)`).
+function DocumentTable({
+	documents,
+	contentHits,
+	selectedIds,
+	onToggleSelect,
+}) {
 	return (
 		<div className="document-table">
 			<table className="document-table__table">
 				<thead>
 					<tr>
+						{selectedIds && (
+							<th scope="col">
+								<span className="visually-hidden">Sélection</span>
+							</th>
+						)}
 						<th scope="col">Titre</th>
 						<th scope="col" className="document-table__number">
 							Pages
@@ -30,6 +42,16 @@ function DocumentTable({ documents, contentHits }) {
 				<tbody>
 					{documents.map((document) => (
 						<tr key={document.id}>
+							{selectedIds && (
+								<td className="document-table__check">
+									<input
+										type="checkbox"
+										aria-label={`Sélectionner « ${document.title} »`}
+										checked={selectedIds.includes(document.id)}
+										onChange={() => onToggleSelect(document)}
+									/>
+								</td>
+							)}
 							<td>
 								<Link to={`/documents/${document.id}`}>{document.title}</Link>
 								{document.isEncrypted && (

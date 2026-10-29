@@ -48,4 +48,19 @@ function remove(documentId, page) {
 	);
 }
 
-module.exports = { findAll, find, count, upsert, remove };
+// Remplace tous les signets du document par `bookmarks` ([{ page, label,
+// createdAt }]), en une transaction.
+function replaceAll(documentId, bookmarks) {
+	const db = getDb();
+	const insert = db.prepare(
+		'INSERT INTO bookmarks (document_id, page, label, created_at) VALUES (?, ?, ?, ?)',
+	);
+	db.transaction(() => {
+		db.prepare('DELETE FROM bookmarks WHERE document_id = ?').run(documentId);
+		for (const { page, label, createdAt } of bookmarks) {
+			insert.run(documentId, page, label, createdAt);
+		}
+	})();
+}
+
+module.exports = { findAll, find, count, upsert, remove, replaceAll };

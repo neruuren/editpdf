@@ -5,9 +5,11 @@ const {
 	getBookmarks,
 	setBookmark,
 	deleteBookmark,
+	remapBookmarks,
 } = require('../controllers/bookmarkController');
 
 router.get('/', getBookmarks);
+router.post('/remap', remapBookmarks);
 router.route('/:page').put(setBookmark).delete(deleteBookmark);
 
 module.exports = router;

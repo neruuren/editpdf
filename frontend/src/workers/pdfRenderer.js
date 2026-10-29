@@ -115,6 +115,12 @@ function _readInfo(document, needsPassword) {
 	return { pageCount, needsPassword, pages, outline };
 }
 
+// Pages et sommaire d'un document ouvert (et déverrouillé), après une
+// modification de ses pages : mêmes informations qu'à l'ouverture.
+export function readLayout(document) {
+	return _readInfo(document, false);
+}
+
 // Essaie le mot de passe (d'ouverture ou de propriétaire) d'un document
 // ouvert par openDocument. Renvoie ses informations complètes, ou null si
 // le mot de passe est faux.

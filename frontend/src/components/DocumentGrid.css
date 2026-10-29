@@ -61,3 +61,14 @@
 	font-size: 0.875em;
 	color: var(--color-text-muted);
 }
+
+/* Mode sélection : la case passe au-dessus du lien qui couvre la carte. */
+.document-grid__check {
+	position: absolute;
+	z-index: 1;
+	inset-block-start: var(--space-3);
+	inset-inline-start: var(--space-3);
+	inline-size: 1.5rem;
+	block-size: 1.5rem;
+	accent-color: var(--color-primary);
+}

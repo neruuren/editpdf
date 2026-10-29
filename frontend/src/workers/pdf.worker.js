@@ -37,6 +37,19 @@ import {
 	replaceImage,
 } from './pdfImageEdit';
 import { needsSanitize } from './pdfContent';
+import {
+	deletePages,
+	duplicatePages,
+	extractPages,
+	hasPageEdits,
+	insertBlankPage,
+	insertPages,
+	movePages,
+	pageIds,
+	pageLayout,
+	pageMap,
+	rotatePages,
+} from './pdfPages';
 
 // 🔹 Worker du moteur PDF : MuPDF (WASM, ~10 Mo) n'est chargé que dans ce
 // thread, à la première ouverture d'un document. Seul utils/pdfEngine.js
@@ -133,6 +146,22 @@ function getPageText(documentId, index) {
 	return pageText;
 }
 
+// Organisation des pages : toutes changent de numéro, leur texte est
+// relu ; le résultat donne leur nouvelle disposition.
+function editPages(documentId, change) {
+	const entry = getEntry(documentId);
+	const result = change(entry.document) ?? {};
+	forgetTexts(entry);
+	return {
+		result: {
+			...result,
+			page: null,
+			layout: pageLayout(entry.document),
+			...historyState(entry.document),
+		},
+	};
+}
+
 // Modification d'une image de la page `index` : le contenu est réécrit par
 // le caviardage, son texte est relu.
 async function editImage(documentId, index, change) {
@@ -151,13 +180,23 @@ const handlers = {
 		const { document, info } = openDocument(mupdf, data);
 		if (!info.needsPassword) enableHistory(document);
 		const documentId = nextDocumentId++;
-		documents.set(documentId, { document, texts: new Map(), textChars: 0 });
+		documents.set(documentId, {
+			document,
+			texts: new Map(),
+			textChars: 0,
+			// Objet de chaque page à l'ouverture : l'enregistrement en déduit
+			// où chaque page est allée (pageMap).
+			pageIds: info.needsPassword ? [] : pageIds(document),
+		});
 		return { result: { documentId, ...info } };
 	},
 	unlock({ documentId, password }) {
-		const document = getDocument(documentId);
-		const info = unlockDocument(document, password);
-		if (info) enableHistory(document);
+		const entry = getEntry(documentId);
+		const info = unlockDocument(entry.document, password);
+		if (info) {
+			enableHistory(entry.document);
+			entry.pageIds = pageIds(entry.document);
+		}
 		return { result: info };
 	},
 	annotations({ documentId, index }) {
@@ -282,27 +321,84 @@ const handlers = {
 			addImage(mupdf, document, index, { point, data }),
 		);
 	},
+	movePages({ documentId, order }) {
+		return editPages(documentId, (document) => movePages(document, order));
+	},
+	rotatePages({ documentId, indexes, quarterTurns }) {
+		return editPages(documentId, (document) =>
+			rotatePages(document, indexes, quarterTurns),
+		);
+	},
+	deletePages({ documentId, indexes }) {
+		return editPages(documentId, (document) => deletePages(document, indexes));
+	},
+	async duplicatePages({ documentId, indexes }) {
+		const mupdf = await loadMupdf();
+		return editPages(documentId, (document) =>
+			duplicatePages(mupdf, document, indexes),
+		);
+	},
+	insertBlankPage({ documentId, at }) {
+		return editPages(documentId, (document) => insertBlankPage(document, at));
+	},
+	async insertPages({ documentId, at, data, password }) {
+		const mupdf = await loadMupdf();
+		return editPages(documentId, (document) =>
+			insertPages(mupdf, document, at, data, { password }),
+		);
+	},
+	async extractPages({ documentId, indexes, title }) {
+		const mupdf = await loadMupdf();
+		const data = extractPages(mupdf, getDocument(documentId), indexes, {
+			title,
+		});
+		return { result: data, transfer: [data.buffer] };
+	},
 	history({ documentId, direction }) {
 		const entry = getEntry(documentId);
 		const page = stepHistory(entry.document, direction < 0 ? -1 : 1);
-		// Toutes les pages (aplatir annulé ou rétabli) : leur texte a changé ;
-		// sinon celui de la page (une édition du texte annulée).
-		if (page === null) forgetTexts(entry);
-		else forgetPageText(entry, page);
-		return { result: { page, ...historyState(entry.document) } };
+		// Toutes les pages (aplatir, organisation des pages annulés ou
+		// rétablis) : leur texte et leur disposition ont changé ; sinon le
+		// texte de la page (une édition du texte annulée).
+		if (page !== null) {
+			forgetPageText(entry, page);
+			return { result: { page, ...historyState(entry.document) } };
+		}
+		forgetTexts(entry);
+		return {
+			result: {
+				page,
+				layout: pageLayout(entry.document),
+				...historyState(entry.document),
+			},
+		};
 	},
-	// Texte ou images modifiés : le fichier est réécrit en entier (l'ancien
-	// texte, l'image retirée n'y restent pas) et la révision est une
-	// « edit », sinon une « annotate ».
+	// Texte ou images modifiés, pages réorganisées : le fichier est réécrit
+	// en entier (l'ancien texte, l'image retirée, une page supprimée n'y
+	// restent pas) et la révision est une « edit » ou une « organize »,
+	// sinon une « annotate ». `pageMap` : où chaque page de départ est
+	// allée (signets à recaler).
 	save({ documentId }) {
-		const document = getDocument(documentId);
+		const entry = getEntry(documentId);
+		const { document } = entry;
 		const isEdit = hasTextEdits(document) || hasImageEdits(document);
+		const isOrganized = hasPageEdits(document);
+		// Avant l'enregistrement : `garbage=compact` renumérote les objets du
+		// document ouvert (constaté), les pages ne se retrouveraient plus.
+		const map = isOrganized ? pageMap(entry.pageIds, pageIds(document)) : null;
 		const data = saveDocument(document, {
-			rewrite: isEdit,
+			rewrite: isEdit || isOrganized,
 			sanitize: isEdit && needsSanitize(document),
 		});
+		let origin = 'annotate';
+		if (isEdit) origin = 'edit';
+		else if (isOrganized) origin = 'organize';
 		return {
-			result: { data, origin: isEdit ? 'edit' : 'annotate' },
+			result: {
+				data,
+				origin,
+				pageMap: map,
+			},
 			transfer: [data.buffer],
 		};
 	},

@@ -62,3 +62,14 @@
 		display: none;
 	}
 }
+
+.document-table__check {
+	inline-size: var(--tap-size);
+	text-align: center;
+}
+
+.document-table__check input {
+	inline-size: 1.25rem;
+	block-size: 1.25rem;
+	accent-color: var(--color-primary);
+}

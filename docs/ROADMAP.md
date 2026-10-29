@@ -2,7 +2,7 @@
 
 Objectif : couvrir l'essentiel de ce que font les éditeurs PDF payants, pour un seul utilisateur. Les tranches sont livrées dans l'ordre ; chacune laisse l'application utilisable. Cocher une case **dans le même changement** que le code (règle de maintenance de [CLAUDE.md](../CLAUDE.md)).
 
-Priorités de Grégory : **T2-T3 (lire + annoter)**, puis **T4 (éditer le contenu existant)** : T4a (le texte) et T4b (les images) faits.
+Priorités de Grégory : **T2-T3 (lire + annoter)**, puis **T4 (éditer le contenu existant)** : T4a (le texte) et T4b (les images) faits ; **T5a** (organisation des pages) fait, T5b à venir.
 
 Légende : `[x]` fait, `[ ]` à faire. Côté : **N** = navigateur (MuPDF.js), **S** = serveur (MuPDF Node ou outils système).
 
@@ -104,11 +104,19 @@ Livrée en deux temps : **T4a** (le texte) puis **T4b** (les images). Approche e
 
 ## T5 : organisation des pages
 
-- [ ] Réordonner par glisser-déposer des miniatures (N)
-- [ ] Pivoter, supprimer, dupliquer des pages ; insérer une page blanche (N)
-- [ ] Insérer les pages d'un autre document de la bibliothèque ou d'un fichier (N/S)
-- [ ] Extraire des pages vers un nouveau document ; scinder (toutes les n pages, par signets) (S)
-- [ ] Fusionner plusieurs documents de la bibliothèque (S)
+Livrée en deux temps : **T5a** (l'ordre et le nombre des pages) puis **T5b** (recadrage, numérotation, en-têtes, filigrane). Approche et limites : [ADR 0011](adr/0011-organisation-des-pages.md).
+
+### T5a
+
+- [x] Mode « Pages » : grille des miniatures, sélection multiple, réordonner par glisser-déposer ou au clavier (N)
+- [x] Pivoter (rotation enregistrée), supprimer, dupliquer des pages ; insérer une page blanche (N)
+- [x] Insérer les pages d'un autre document de la bibliothèque ou d'un fichier, PDF protégé compris (N)
+- [x] Extraire des pages vers un nouveau document ; scinder (toutes les n pages, par le sommaire, avant les pages choisies) (N → S)
+- [x] Fusionner plusieurs documents de la bibliothèque (S)
+- [x] Enregistrement en révision `organize`, signets recalés sur leurs pages (N → S)
+
+### T5b
+
 - [ ] Recadrer, redimensionner les pages ; numérotation (Bates), en-têtes / pieds de page, filigrane (N/S)
 
 ## T6 : formulaires et signature

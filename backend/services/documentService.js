@@ -102,6 +102,77 @@ async function importDocument(upload) {
 	}
 }
 
+const MIN_MERGED = 2;
+const MAX_MERGED = 50;
+const MAX_MERGE_TITLE_LENGTH = 300;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// 🔹 Fusion de documents de la bibliothèque (T5a) : corps { documentIds
+// (2 à 50, dans l'ordre), title? } ; leurs révisions courantes deviennent
+// un nouveau document (importé comme un envoi : doublon refusé, miniature,
+// texte indexé). Un document protégé par mot de passe est refusé (422).
+async function mergeDocuments(body) {
+	const ids = body?.documentIds;
+	if (
+		!Array.isArray(ids) ||
+		ids.length < MIN_MERGED ||
+		ids.length > MAX_MERGED ||
+		!ids.every((id) => typeof id === 'string' && UUID.test(id)) ||
+		new Set(ids).size !== ids.length
+	) {
+		throw new ErrorResponse(
+			`Choisissez de ${MIN_MERGED} à ${MAX_MERGED} documents différents`,
+			400,
+		);
+	}
+	const rawTitle = body.title ?? '';
+	if (typeof rawTitle !== 'string') {
+		throw new ErrorResponse('Titre invalide', 400);
+	}
+	const title =
+		stripInvisible(rawTitle).trim().slice(0, MAX_MERGE_TITLE_LENGTH) ||
+		`Fusion de ${ids.length} documents`;
+
+	const maxBytes = env.uploadMaxSizeMb * 1024 * 1024;
+	let total = 0;
+	const sources = [];
+	for (const id of ids) {
+		const document = Document.findById(id);
+		if (!document) throw new ErrorResponse('Document non trouvé', 404);
+		if (document.isEncrypted) {
+			throw new ErrorResponse(
+				`« ${document.title} » est protégé par un mot de passe : il ne se fusionne pas`,
+				422,
+			);
+		}
+		const { filePath } = getPdfFile(id);
+		const data = await fs.readFile(filePath);
+		total += data.length;
+		if (total > maxBytes) {
+			throw new ErrorResponse(
+				`Le résultat dépasserait ${env.uploadMaxSizeMb} Mo`,
+				413,
+			);
+		}
+		sources.push({ data, title: document.title });
+	}
+	const merged = await pdfService.mergePdfs(sources, {
+		title,
+		maxPages: env.pdfMaxPages,
+	});
+	const tmpPath = path.join(
+		storageService.TMP_DIR,
+		`merge-${crypto.randomUUID()}.pdf`,
+	);
+	await fs.mkdir(storageService.TMP_DIR, { recursive: true });
+	await fs.writeFile(tmpPath, merged);
+	// importDocument retire le fichier de tmp/ dans tous les cas.
+	return importDocument({
+		path: tmpPath,
+		originalname: `${title.replace(/[\\/]/g, ' ')}.pdf`,
+	});
+}
+
 // Après les écritures de révision en cours (writeQueue) : sinon elles
 // recréeraient le dossier du document supprimé.
 function deleteDocument(id) {
@@ -273,6 +344,7 @@ function setReadingPosition(id, body) {
 
 module.exports = {
 	importDocument,
+	mergeDocuments,
 	setReadingPosition,
 	deleteDocument,
 	updateDocument,

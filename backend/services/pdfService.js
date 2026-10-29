@@ -196,6 +196,194 @@ async function inspectPdf(
 	}
 }
 
+// Clés recopiées d'une annotation (liste blanche, même liste que la
+// visionneuse : frontend/src/workers/pdfPages.js) : son aspect et son
+// texte. Jamais ses actions (A, AA : une suite d'actions peut désigner une
+// page, et la copie emporterait tout le document source), ni ses liens
+// vers une page, le formulaire, l'arbre de structure ou une autre
+// annotation.
+const COPIED_ANNOTATION_KEYS = new Set([
+	'Type',
+	'Subtype',
+	'Rect',
+	'Contents',
+	'NM',
+	'M',
+	'F',
+	'AP',
+	'AS',
+	'Border',
+	'BS',
+	'BE',
+	'C',
+	'IC',
+	'CA',
+	'T',
+	'Subj',
+	'CreationDate',
+	'RC',
+	'DS',
+	'DA',
+	'Q',
+	'QuadPoints',
+	'InkList',
+	'Vertices',
+	'L',
+	'LE',
+	'LL',
+	'LLE',
+	'IT',
+	'RD',
+	'Name',
+	'FS',
+	'OC',
+	'Open',
+]);
+const MAX_COPIED_ANNOTATIONS = 500;
+// Annotations recopiées au plus par fusion (coût : MuPDF est synchrone).
+const MAX_MERGED_ANNOTATIONS = 20_000;
+// Objets qu'une valeur recopiée peut entraîner (graftObject suit les
+// références) ; jamais une page, l'arbre des pages ou le catalogue.
+const MAX_GRAFTED_OBJECTS = 2000;
+const MAX_DEPTH = 32;
+const FORBIDDEN_TYPES = new Set(['Page', 'Pages', 'Catalog']);
+
+function _name(object) {
+	return object.isName() ? object.asName() : '';
+}
+
+function _isSafeToGraft(value, budget, seen = new Set(), depth = 0) {
+	if (depth > MAX_DEPTH) return false;
+	if (value.isIndirect()) {
+		const number = value.asIndirect();
+		if (seen.has(number)) return true;
+		seen.add(number);
+		if (--budget.objects < 0) return false;
+	}
+	const object = value.resolve();
+	if (!object.isDictionary() && !object.isArray()) return true;
+	if (object.isDictionary() && FORBIDDEN_TYPES.has(_name(object.get('Type')))) {
+		return false;
+	}
+	let isSafe = true;
+	object.forEach((child) => {
+		if (isSafe && !_isSafeToGraft(child, budget, seen, depth + 1)) {
+			isSafe = false;
+		}
+	});
+	return isSafe;
+}
+
+// `graftPage` ne copie pas les annotations : elles sont recopiées à part,
+// sauf les champs de formulaire et les liens vers une page du document
+// source. `total` : { count } des annotations recopiées par la fusion.
+function _copyAnnotations(target, map, sourcePage, targetPage, total) {
+	const annotations = sourcePage.get('Annots');
+	if (!annotations.isArray()) return;
+	const copied = target.newArray();
+	let count = 0;
+	annotations.forEach((reference) => {
+		const annotation = reference.resolve();
+		if (!annotation.isDictionary() || count >= MAX_COPIED_ANNOTATIONS) return;
+		if (total.count >= MAX_MERGED_ANNOTATIONS) return;
+		const subtype = _name(annotation.get('Subtype'));
+		if (['Widget', 'Popup', 'Link', ''].includes(subtype)) return;
+		const values = [];
+		annotation.forEach((value, key) => {
+			if (COPIED_ANNOTATION_KEYS.has(key)) values.push([key, value]);
+		});
+		const budget = { objects: MAX_GRAFTED_OBJECTS };
+		const seen = new Set();
+		if (!values.every(([, value]) => _isSafeToGraft(value, budget, seen))) {
+			return;
+		}
+		const copy = target.newDictionary();
+		for (const [key, value] of values) copy.put(key, map.graftObject(value));
+		copy.put('P', targetPage);
+		copied.push(target.addObject(copy));
+		count++;
+		total.count++;
+	});
+	if (copied.length > 0) targetPage.put('Annots', copied);
+}
+
+// 🔹 Fusionne les PDF `sources` ([{ data (Buffer), title }], non protégés)
+// dans cet ordre : un nouveau PDF (Buffer) au titre `title`, dont le
+// sommaire a une entrée par source (son titre, vers sa première page).
+// Annotations recopiées (pas les champs de formulaire ni les liens ;
+// 20 000 au plus). Le nombre total de
+// pages est borné par `maxPages` (422 au-delà).
+// ⚠️ Synchrone, comme inspectPdf : la boucle d'événements attend.
+async function mergePdfs(sources, { title, maxPages = Infinity }) {
+	const mupdf = await loadMupdf();
+	const output = new mupdf.PDFDocument();
+	const opened = [];
+	try {
+		const starts = [];
+		const copiedAnnotations = { count: 0 };
+		for (const source of sources) {
+			if (!hasPdfSignature(source.data)) {
+				throw new ErrorResponse('Un des documents n’est pas un PDF', 422);
+			}
+			let document;
+			try {
+				document = mupdf.Document.openDocument(source.data, 'application/pdf');
+			} catch {
+				throw new ErrorResponse('Un des documents est illisible', 422);
+			}
+			opened.push(document);
+			if (document.needsPassword()) {
+				throw new ErrorResponse(
+					'Un document protégé par mot de passe ne se fusionne pas',
+					422,
+				);
+			}
+			const count = document.countPages();
+			if (output.countPages() + count > maxPages) {
+				throw new ErrorResponse(
+					`Le résultat aurait trop de pages (${maxPages} au plus)`,
+					422,
+				);
+			}
+			starts.push(output.countPages());
+			// Une graft map par source : ce que ses pages partagent (polices,
+			// images) n'est copié qu'une fois.
+			const map = output.newGraftMap();
+			for (let index = 0; index < count; index++) {
+				const at = output.countPages();
+				map.graftPage(at, document, index);
+				_copyAnnotations(
+					output,
+					map,
+					document.findPage(index),
+					output.findPage(at),
+					copiedAnnotations,
+				);
+			}
+		}
+		const iterator = output.outlineIterator();
+		sources.forEach((source, position) => {
+			iterator.insert({
+				title: source.title,
+				uri: output.formatLinkURI({ page: starts[position], type: 'Fit' }),
+				open: false,
+			});
+		});
+		output
+			.getTrailer()
+			.put('Info', output.addObject({ Title: output.newString(title) }));
+		return Buffer.from(
+			output.saveToBuffer('garbage=compact,compress').asUint8Array(),
+		);
+	} catch (error) {
+		if (error instanceof ErrorResponse) throw error;
+		throw new ErrorResponse('Fusion impossible : PDF illisible', 422);
+	} finally {
+		for (const document of opened) document.destroy();
+		output.destroy();
+	}
+}
+
 function _isStampImage(data) {
 	return (
 		data.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE) ||
@@ -270,5 +458,6 @@ module.exports = {
 	loadMupdf,
 	hasPdfSignature,
 	inspectPdf,
+	mergePdfs,
 	normalizeStampImage,
 };

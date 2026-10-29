@@ -1,6 +1,7 @@
 const Bookmark = require('../models/Bookmark');
 const Document = require('../models/Document');
 const ErrorResponse = require('../utils/errorResponse');
+const env = require('../config/env');
 const { parseLabel } = require('../utils/validators');
 
 // 🔹 Signets personnels d'un document (visionneuse, T2b).
@@ -63,4 +64,38 @@ function deleteBookmark(id, pageParam) {
 	}
 }
 
-module.exports = { listBookmarks, setBookmark, deleteBookmark };
+// Pages réorganisées dans la visionneuse (T5a) : `pageMap` donne, pour
+// chaque page d'avant (index 0), sa nouvelle place (index 0), ou -1 si
+// elle a été supprimée. Les signets suivent leur page ; celui d'une page
+// supprimée disparaît. Renvoie les signets.
+function remapBookmarks(id, body) {
+	const document = _findDocument(id);
+	const pageMap = body?.pageMap;
+	if (
+		!Array.isArray(pageMap) ||
+		pageMap.length > env.pdfMaxPages ||
+		!pageMap.every(
+			(value) =>
+				Number.isInteger(value) && value >= -1 && value < document.pageCount,
+		) ||
+		new Set(pageMap.filter((value) => value >= 0)).size !==
+			pageMap.filter((value) => value >= 0).length
+	) {
+		throw new ErrorResponse('Correspondance des pages invalide', 400);
+	}
+	const moved = Bookmark.findAll(id).flatMap((bookmark) => {
+		const place = pageMap[bookmark.page - 1];
+		// Une page au-delà de la correspondance ne bouge pas.
+		if (place === undefined) return [bookmark];
+		return place < 0 ? [] : [{ ...bookmark, page: place + 1 }];
+	});
+	Bookmark.replaceAll(id, moved);
+	return Bookmark.findAll(id);
+}
+
+module.exports = {
+	listBookmarks,
+	setBookmark,
+	deleteBookmark,
+	remapBookmarks,
+};

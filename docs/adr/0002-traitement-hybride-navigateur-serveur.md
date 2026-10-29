@@ -10,7 +10,7 @@ Certaines opérations doivent être instantanées et interactives (rendu, annota
 ## Décision
 
 - **Navigateur** : MuPDF.js dans un **Web Worker** pour tout ce qui est interactif : rendu, calque de texte, recherche, annotations, édition de texte et d'images, réorganisation des pages, formulaires, caviardage. L'utilisateur travaille sur une copie en mémoire ; **« Enregistrer » envoie le PDF complet** au serveur, qui en fait une nouvelle révision.
-- **Serveur, MuPDF Node** (`services/pdfService.js`) : validation à l'upload, métadonnées, extraction du texte (index FTS5), miniatures, opérations sur plusieurs documents (fusion).
+- **Serveur, MuPDF Node** (`services/pdfService.js`) : validation à l'upload, métadonnées, extraction du texte (index FTS5), miniatures, opérations sur plusieurs documents (fusion, [ADR 0011](0011-organisation-des-pages.md)).
 - **Serveur, outils système** (`services/toolService.js`), installés dans l'image Docker :
   - `qpdf` : réparation, linéarisation, chiffrement / déchiffrement, vérification de structure ;
   - `ghostscript` : compression (rééchantillonnage des images), PDF/A ;

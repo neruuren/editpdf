@@ -88,6 +88,21 @@ export function useUploadDocuments() {
 	return { mutation, progress };
 }
 
+// mutate({ documentIds, title }) : fusion en un nouveau document, qui
+// apparaît dans la liste.
+export function useMergeDocuments() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: documentsAPI.merge,
+		onSuccess: (document) => {
+			queryClient.setQueryData(DOCUMENTS_QUERY_KEY, (documents) =>
+				documents ? [document, ...documents] : documents,
+			);
+			queryClient.invalidateQueries({ queryKey: SEARCH_QUERY_KEY });
+		},
+	});
+}
+
 // Le document renvoyé par le serveur remplace l'ancien dans la liste et
 // dans sa fiche.
 export function replaceCachedDocument(queryClient, updated) {

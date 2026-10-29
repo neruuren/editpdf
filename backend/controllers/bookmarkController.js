@@ -22,6 +22,17 @@ exports.setBookmark = (req, res) => {
 	res.status(created ? 201 : 200).json({ success: true, data: bookmark });
 };
 
+// @desc    Recaler les signets après une réorganisation des pages
+//          ({ pageMap } : nouvelle place de chaque page d'avant, ou -1)
+// @route   POST /api/v1/documents/:id/bookmarks/remap
+// @access  Private
+exports.remapBookmarks = (req, res) => {
+	const bookmarks = bookmarkService.remapBookmarks(req.params.id, req.body);
+	res
+		.status(200)
+		.json({ success: true, count: bookmarks.length, data: bookmarks });
+};
+
 // @desc    Retirer le signet d'une page
 // @route   DELETE /api/v1/documents/:id/bookmarks/:page
 // @access  Private

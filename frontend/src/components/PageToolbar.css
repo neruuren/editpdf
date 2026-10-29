@@ -1,0 +1,103 @@
+/* Comme les autres barres de mode : une ligne dont les actions défilent sur
+   un écran étroit, la fin (annuler, enregistrer, terminer) reste visible. */
+.page-toolbar {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	padding: var(--space-1) var(--space-2);
+	padding-inline: max(var(--space-2), env(safe-area-inset-left))
+		max(var(--space-2), env(safe-area-inset-right));
+	border-block-end: 1px solid var(--color-border);
+	background: var(--color-surface);
+}
+
+.page-toolbar__main {
+	display: flex;
+	flex: 1 1 auto;
+	align-items: center;
+	gap: var(--space-1) var(--space-3);
+	min-inline-size: 0;
+	overflow-x: auto;
+	scrollbar-width: thin;
+}
+
+/* Téléphone : en bas de l'écran, à portée du pouce. */
+@media (width < 48rem) {
+	.page-toolbar {
+		order: 10;
+		padding-block-end: max(var(--space-1), env(safe-area-inset-bottom));
+		border-block-start: 1px solid var(--color-border);
+		border-block-end: 0;
+	}
+}
+
+.page-toolbar__count {
+	flex: none;
+	margin: 0;
+	color: var(--color-text-muted);
+	white-space: nowrap;
+}
+
+.page-toolbar__group {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: var(--space-1);
+}
+
+.page-toolbar__end {
+	flex: none;
+}
+
+.page-toolbar__button {
+	flex: none;
+	min-inline-size: var(--tap-size);
+	padding-inline: var(--space-2);
+	font-weight: 400;
+	white-space: nowrap;
+}
+
+.page-toolbar__save {
+	flex: none;
+	white-space: nowrap;
+}
+
+.page-toolbar__svg {
+	inline-size: 1.25rem;
+	block-size: 1.25rem;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+/* Menu « Insérer » : popover ancré au bouton. */
+.page-toolbar__menu-button {
+	anchor-name: --page-toolbar-menu;
+}
+
+.page-toolbar__menu {
+	position-anchor: --page-toolbar-menu;
+	position-area: block-end span-inline-end;
+	position-try-fallbacks: flip-block;
+	min-inline-size: 16rem;
+	margin: var(--space-1) 0;
+	padding: var(--space-2);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+	color: var(--color-text);
+	background: var(--color-surface);
+	box-shadow: var(--shadow);
+}
+
+.page-toolbar__menu:popover-open {
+	display: grid;
+	gap: var(--space-1);
+}
+
+.page-toolbar__menu-item {
+	justify-content: flex-start;
+	inline-size: 100%;
+	font-weight: 400;
+}

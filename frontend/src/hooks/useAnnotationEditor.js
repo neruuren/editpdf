@@ -1,12 +1,16 @@
 import { useCallback, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { revisionsAPI } from '../utils/api';
+import { bookmarksAPI, revisionsAPI } from '../utils/api';
 import {
 	getDocumentPassword,
 	putDocumentFile,
 	rememberDocumentPassword,
 } from '../utils/documentFileCache';
-import { SEARCH_QUERY_KEY, revisionsQueryKey } from '../utils/queryClient';
+import {
+	SEARCH_QUERY_KEY,
+	bookmarksQueryKey,
+	revisionsQueryKey,
+} from '../utils/queryClient';
 import { replaceCachedDocument } from './useDocuments';
 
 function _initial(pdf) {
@@ -16,6 +20,9 @@ function _initial(pdf) {
 		// `all` change quand on ne sait pas quelle page a changé.
 		versions: new Map(),
 		all: 0,
+		// Disposition des pages après leur réorganisation ({ pageCount,
+		// pages, outline }), null tant qu'elle est celle du PDF ouvert.
+		layout: null,
 		canUndo: false,
 		canRedo: false,
 		isDirty: false,
@@ -26,13 +33,14 @@ function _initial(pdf) {
 	};
 }
 
-function _applied(state, { page, canUndo, canRedo, isDirty }) {
+function _applied(state, { page, layout, canUndo, canRedo, isDirty }) {
 	const versions = new Map(state.versions);
 	if (page !== null) versions.set(page, (versions.get(page) ?? 0) + 1);
 	return {
 		...state,
 		versions,
 		all: page === null ? state.all + 1 : state.all,
+		layout: layout ?? state.layout,
 		canUndo,
 		canRedo,
 		isDirty,
@@ -58,7 +66,9 @@ export function isSaveConflict(error) {
 // remove(index, id), removeMarkup(index, from, to), erase(index, points,
 // radius) (gomme), flatten() (aplatir), replaceText(index, params),
 // addText(index, params) (texte du contenu, T4a), deleteImage, moveImage,
-// replaceImage, addImage (index, params) (images du contenu, T4b), undo(),
+// replaceImage, addImage (index, params) (images du contenu, T4b),
+// movePages, rotatePages, deletePages, duplicatePages, insertBlankPage,
+// insertPages et `layout` (pages, T5a), undo(),
 // redo(), save,
 // discard() } ;
 // `save` est une mutation : save.mutate({ force }) (force : sans contrôle
@@ -72,7 +82,7 @@ export function useAnnotationEditor({ document, pdf, revision, author }) {
 
 	const save = useMutation({
 		mutationFn: async ({ force = false } = {}) => {
-			const { data, origin } = await pdf.save();
+			const { data, origin, pageMap } = await pdf.save();
 			const file = new File([data], 'modifications.pdf', {
 				type: 'application/pdf',
 			});
@@ -83,6 +93,20 @@ export function useAnnotationEditor({ document, pdf, revision, author }) {
 				baseRevision: force ? undefined : revision,
 			});
 			putDocumentFile(updated.id, updated.currentRevision, data.buffer);
+			// Pages réorganisées : les signets suivent leur page (un échec
+			// n'annule pas l'enregistrement, la liste est relue).
+			if (pageMap) {
+				try {
+					queryClient.setQueryData(
+						bookmarksQueryKey(document.id),
+						await bookmarksAPI.remap({ id: document.id, pageMap }),
+					);
+				} catch {
+					queryClient.invalidateQueries({
+						queryKey: bookmarksQueryKey(document.id),
+					});
+				}
+			}
 			const password = getDocumentPassword(document.id, revision);
 			if (password) {
 				rememberDocumentPassword(
@@ -204,6 +228,53 @@ export function useAnnotationEditor({ document, pdf, revision, author }) {
 		[isLocked, run, pdf],
 	);
 
+	// Organisation des pages (T5a) : la disposition change (`layout`).
+	const movePages = useCallback(
+		(order) => (isLocked ? null : run(() => pdf.movePages(order))),
+		[isLocked, run, pdf],
+	);
+
+	const rotatePages = useCallback(
+		(indexes, quarterTurns) =>
+			isLocked ? null : run(() => pdf.rotatePages(indexes, quarterTurns)),
+		[isLocked, run, pdf],
+	);
+
+	const deletePages = useCallback(
+		(indexes) => (isLocked ? null : run(() => pdf.deletePages(indexes))),
+		[isLocked, run, pdf],
+	);
+
+	const duplicatePages = useCallback(
+		(indexes) => (isLocked ? null : run(() => pdf.duplicatePages(indexes))),
+		[isLocked, run, pdf],
+	);
+
+	const insertBlankPage = useCallback(
+		(at) => (isLocked ? null : run(() => pdf.insertBlankPage(at))),
+		[isLocked, run, pdf],
+	);
+
+	// Un PDF protégé : l'erreur PasswordRequiredError remonte à l'appelant,
+	// qui demande le mot de passe et recommence.
+	const insertPages = useCallback(
+		async (at, data, options) => {
+			if (isLocked) return null;
+			try {
+				const result = await pdf.insertPages(at, data, options);
+				setState((value) =>
+					value.pdf === pdf ? _applied(value, result) : value,
+				);
+				return result;
+			} catch (error) {
+				if (error.name === 'PasswordRequiredError') throw error;
+				setState((value) => (value.pdf === pdf ? { ...value, error } : value));
+				return null;
+			}
+		},
+		[isLocked, pdf],
+	);
+
 	const undo = useCallback(
 		() => (isLocked ? null : run(() => pdf.undo())),
 		[isLocked, run, pdf],
@@ -254,6 +325,14 @@ export function useAnnotationEditor({ document, pdf, revision, author }) {
 		moveImage,
 		replaceImage,
 		addImage,
+		movePages,
+		rotatePages,
+		deletePages,
+		duplicatePages,
+		insertBlankPage,
+		insertPages,
+		// Disposition des pages réorganisées (null : celle du PDF ouvert).
+		layout: current.layout,
 		undo,
 		redo,
 		save,

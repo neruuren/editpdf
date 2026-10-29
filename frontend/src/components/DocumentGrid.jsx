@@ -8,11 +8,22 @@ import './DocumentGrid.css';
 // sa fiche. Le lien est sur le titre (son nom accessible reste le titre
 // seul) mais couvre toute la carte (cible tactile large). Un document
 // trouvé par son contenu montre l'extrait (`contentHits`, Map par id).
-function DocumentGrid({ documents, contentHits }) {
+// Mode sélection (`selectedIds` : tableau, null hors de ce mode) : une
+// case à cocher par carte, au-dessus du lien (`onToggleSelect(document)`).
+function DocumentGrid({ documents, contentHits, selectedIds, onToggleSelect }) {
 	return (
 		<ul className="document-grid" role="list">
 			{documents.map((document) => (
 				<li key={document.id} className="document-grid__card">
+					{selectedIds && (
+						<input
+							type="checkbox"
+							className="document-grid__check"
+							aria-label={`Sélectionner « ${document.title} »`}
+							checked={selectedIds.includes(document.id)}
+							onChange={() => onToggleSelect(document)}
+						/>
+					)}
 					<DocumentThumbnail document={document} />
 					<Link
 						to={`/documents/${document.id}`}

@@ -1,0 +1,101 @@
+/* La grille remplace les pages : elle défile seule, et porte le trait du
+   glisser-déposer (en position absolue dans son contenu). */
+.pdf-page-grid {
+	position: relative;
+	flex: 1 1 auto;
+	min-block-size: 0;
+	overflow: auto;
+	padding: var(--space-4);
+	background: var(--color-bg);
+}
+
+.pdf-page-grid__tiles {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+	gap: var(--space-3);
+	align-items: start;
+}
+
+.pdf-page-grid__tile {
+	display: grid;
+	justify-items: center;
+	gap: var(--space-1);
+	padding: var(--space-2);
+	border: 2px solid transparent;
+	border-radius: var(--radius-md);
+	color: var(--color-text-muted);
+	cursor: pointer;
+	user-select: none;
+	/* Le doigt fait défiler la grille ; la souris et le stylet glissent. */
+	touch-action: pan-x pan-y;
+}
+
+.pdf-page-grid__tile:hover {
+	background: var(--color-surface);
+}
+
+.pdf-page-grid__tile:focus-visible {
+	outline: 3px solid var(--color-accent);
+	outline-offset: 2px;
+}
+
+.pdf-page-grid__tile[aria-selected='true'] {
+	border-color: var(--color-primary);
+	background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+	color: var(--color-text);
+	font-weight: 600;
+}
+
+.pdf-page-grid__tile[data-dragged] {
+	opacity: 0.4;
+}
+
+.pdf-page-grid__frame {
+	position: relative;
+	display: grid;
+	place-items: center;
+	min-block-size: 8rem;
+}
+
+.pdf-page-grid__canvas {
+	background: #ffffff;
+	box-shadow: var(--shadow);
+}
+
+.pdf-page-grid__check {
+	position: absolute;
+	inset-block-start: calc(-1 * var(--space-1));
+	inset-inline-end: calc(-1 * var(--space-1));
+	display: grid;
+	place-items: center;
+	inline-size: 1.5rem;
+	block-size: 1.5rem;
+	border-radius: 50%;
+	color: var(--color-primary-contrast);
+	background: var(--color-primary);
+	font-size: 0.875rem;
+}
+
+.pdf-page-grid__number {
+	font-size: 0.875em;
+}
+
+.pdf-page-grid__drop {
+	position: absolute;
+	inline-size: 4px;
+	margin-inline-start: -2px;
+	border-radius: 2px;
+	background: var(--color-primary);
+	pointer-events: none;
+}
+
+@media (forced-colors: active) {
+	.pdf-page-grid__tile[aria-selected='true'] {
+		border-color: Highlight;
+	}
+
+	.pdf-page-grid__drop,
+	.pdf-page-grid__check {
+		background: Highlight;
+	}
+}

@@ -142,6 +142,12 @@ function fakeAnnotations() {
 	});
 	const list = (index) => [...(pages.get(index) ?? [])];
 	const images = new Map();
+	let pageCount = 3;
+	const layout = (count) => ({
+		pageCount: count,
+		pages: Array.from({ length: count }, () => ({ width: 595, height: 842 })),
+		outline: [],
+	});
 	const imageList = (index) =>
 		images.get(index) ?? [
 			{
@@ -263,6 +269,36 @@ function fakeAnnotations() {
 				...history(index),
 			};
 		}),
+		// Pages (T5a) : trois pages A4 qu'on réorganise.
+		movePages: vi.fn(async () => {
+			position += 1;
+			return { ...history(null), layout: layout(pageCount) };
+		}),
+		rotatePages: vi.fn(async () => {
+			position += 1;
+			return { ...history(null), layout: layout(pageCount) };
+		}),
+		deletePages: vi.fn(async (indexes) => {
+			pageCount -= indexes.length;
+			position += 1;
+			return { ...history(null), layout: layout(pageCount) };
+		}),
+		duplicatePages: vi.fn(async (indexes) => {
+			pageCount += indexes.length;
+			position += 1;
+			return { ...history(null), layout: layout(pageCount) };
+		}),
+		insertBlankPage: vi.fn(async () => {
+			pageCount += 1;
+			position += 1;
+			return { ...history(null), layout: layout(pageCount) };
+		}),
+		insertPages: vi.fn(async () => {
+			pageCount += 2;
+			position += 1;
+			return { count: 2, ...history(null), layout: layout(pageCount) };
+		}),
+		extractPages: vi.fn(async () => new Uint8Array([0x25, 0x50, 0x44, 0x46])),
 		// Images du contenu (T4b) : une photo sur chaque page.
 		getImages: vi.fn(async (index) => imageList(index)),
 		moveImage: vi.fn(async (index, { target, rect }) => {
@@ -1245,5 +1281,138 @@ describe('ViewerPage : modifier les images', () => {
 				pressed: true,
 			}),
 		).toBeInTheDocument();
+	});
+});
+
+describe('ViewerPage : organiser les pages', () => {
+	async function openPages(extra) {
+		const opened = await openViewer({ ...RAPPORT, lastPage: null }, extra);
+		await userEvent.click(
+			screen.getByRole('button', { name: 'Organiser les pages' }),
+		);
+		const grid = screen.getByRole('listbox', { name: 'Pages du document' });
+		const toolbar = screen.getByRole('toolbar', {
+			name: 'Organisation des pages',
+		});
+		return { ...opened, grid, toolbar };
+	}
+
+	it('sélectionne des pages et les déplace au clavier', async () => {
+		const { pdf, grid, toolbar } = await openPages();
+		expect(within(grid).getAllByRole('option')).toHaveLength(3);
+		const user = userEvent.setup();
+		await user.click(within(grid).getByRole('option', { name: 'Page 1' }));
+		// Maj + clic : la plage.
+		await user.keyboard('{Shift>}');
+		await user.click(within(grid).getByRole('option', { name: 'Page 2' }));
+		await user.keyboard('{/Shift}');
+		expect(
+			within(toolbar).getByText('2 / 3 pages sélectionnées'),
+		).toBeInTheDocument();
+		await user.keyboard('{Alt>}{ArrowRight}{/Alt}');
+		await waitFor(() => expect(pdf.movePages).toHaveBeenCalledWith([2, 0, 1]));
+		await waitFor(() =>
+			expect(
+				within(grid).getByRole('option', { name: 'Page 3' }),
+			).toHaveAttribute('aria-selected', 'true'),
+		);
+		expect(
+			within(grid).getByRole('option', { name: 'Page 1' }),
+		).toHaveAttribute('aria-selected', 'false');
+	});
+
+	it('supprime, pivote et insère une page blanche', async () => {
+		const { pdf, grid, toolbar } = await openPages();
+		await userEvent.click(within(grid).getByRole('option', { name: 'Page 1' }));
+		await userEvent.click(
+			within(toolbar).getByRole('button', { name: 'Pivoter à droite' }),
+		);
+		expect(pdf.rotatePages).toHaveBeenCalledWith([0], 1);
+		await userEvent.click(
+			within(toolbar).getByRole('button', { name: 'Supprimer' }),
+		);
+		expect(pdf.deletePages).toHaveBeenCalledWith([0]);
+		await waitFor(() =>
+			expect(within(grid).getAllByRole('option')).toHaveLength(2),
+		);
+		await userEvent.click(
+			within(toolbar).getByRole('button', {
+				name: 'Une page blanche',
+				hidden: true,
+			}),
+		);
+		expect(pdf.insertBlankPage).toHaveBeenCalledWith(1);
+		await waitFor(() =>
+			expect(within(grid).getAllByRole('option')).toHaveLength(3),
+		);
+	});
+
+	it('extrait des pages vers un nouveau document de la bibliothèque', async () => {
+		let uploaded;
+		const { pdf, grid, toolbar } = await openPages({
+			'POST /api/v1/documents': (options) => {
+				uploaded = options.body;
+				return {
+					status: 201,
+					body: {
+						success: true,
+						data: {
+							...RAPPORT,
+							id: 'extrait',
+							title: 'Rapport annuel (page 2)',
+						},
+					},
+				};
+			},
+		});
+		await userEvent.click(within(grid).getByRole('option', { name: 'Page 2' }));
+		await userEvent.click(
+			within(toolbar).getByRole('button', { name: 'Extraire…' }),
+		);
+		const dialog = screen.getByRole('dialog', { name: 'Extraire des pages' });
+		expect(
+			within(dialog).getByRole('textbox', {
+				name: 'Titre du nouveau document',
+			}),
+		).toHaveValue('Rapport annuel (page 2)');
+		await userEvent.click(
+			within(dialog).getByRole('button', { name: 'Créer le document' }),
+		);
+		expect(
+			await within(dialog).findByRole('link', {
+				name: 'Rapport annuel (page 2)',
+			}),
+		).toHaveAttribute('href', '/documents/extrait');
+		expect(pdf.extractPages).toHaveBeenCalledWith([1], {
+			title: 'Rapport annuel (page 2)',
+		});
+		expect(uploaded.get('file').name).toBe('Rapport annuel (page 2).pdf');
+	});
+
+	it('enregistre en « organize » et recale les signets', async () => {
+		let remapped;
+		const { pdf, grid, toolbar } = await openPages({
+			'POST /api/v1/documents/rapport/revisions': () => ({
+				status: 201,
+				body: { success: true, data: RAPPORT },
+			}),
+			'POST /api/v1/documents/rapport/bookmarks/remap': (options) => {
+				remapped = JSON.parse(options.body);
+				return { status: 200, body: { success: true, data: [] } };
+			},
+		});
+		pdf.save.mockResolvedValue({
+			data: new Uint8Array([0x25, 0x50, 0x44, 0x46]),
+			origin: 'organize',
+			pageMap: [1, 0, 2],
+		});
+		await userEvent.click(within(grid).getByRole('option', { name: 'Page 1' }));
+		await userEvent.click(
+			within(toolbar).getByRole('button', { name: 'Avancer' }),
+		);
+		await userEvent.click(
+			within(toolbar).getByRole('button', { name: 'Enregistrer' }),
+		);
+		await waitFor(() => expect(remapped).toEqual({ pageMap: [1, 0, 2] }));
 	});
 });

@@ -1,0 +1,56 @@
+.merge-dialog {
+	inline-size: min(100% - 2 * var(--space-4), 36rem);
+	max-block-size: min(100% - 2 * var(--space-4), 44rem);
+	padding: var(--space-5);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-lg);
+	color: var(--color-text);
+	background: var(--color-surface);
+	box-shadow: var(--shadow);
+}
+
+.merge-dialog::backdrop {
+	background: rgb(0 0 0 / 0.45);
+}
+
+.merge-dialog__title {
+	margin-block: 0 var(--space-4);
+	font-size: var(--font-size-lg);
+}
+
+.merge-dialog__list {
+	display: grid;
+	gap: var(--space-1);
+	margin-block: var(--space-2) var(--space-4);
+	padding-inline-start: var(--space-5);
+}
+
+.merge-dialog__item {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1);
+}
+
+.merge-dialog__name {
+	flex: 1 1 auto;
+	min-inline-size: 0;
+	overflow-wrap: anywhere;
+}
+
+.merge-dialog__move {
+	flex: none;
+	min-inline-size: var(--tap-size);
+}
+
+.merge-dialog__locked,
+.merge-dialog__error {
+	color: var(--color-danger);
+}
+
+.merge-dialog__actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: var(--space-2);
+	margin-block-start: var(--space-5);
+}

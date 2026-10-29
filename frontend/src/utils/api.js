@@ -63,6 +63,13 @@ export const documentsAPI = {
 	update: ({ id, changes }) =>
 		request(documentPath(id), { method: 'PATCH', body: changes }),
 	remove: (id) => request(documentPath(id), { method: 'DELETE' }),
+	// Fusion de documents de la bibliothèque, dans l'ordre : un nouveau
+	// document (T5a).
+	merge: ({ documentIds, title }) =>
+		request('/v1/documents/merge', {
+			method: 'POST',
+			body: { documentIds, title },
+		}),
 	// Page lue dans la visionneuse (1 = première) : reprise et date d'ouverture.
 	setReading: ({ id, page, keepalive }) =>
 		request(`${documentPath(id)}/reading`, {
@@ -90,7 +97,7 @@ export const documentsAPI = {
 // Les mutations renvoient le document mis à jour (sauf remove).
 export const revisionsAPI = {
 	list: (id) => request(`${documentPath(id)}/revisions`),
-	// `origin` 'annotate' ou 'edit' (texte ou images modifiés) : enregistrement de la
+	// `origin` 'annotate', 'edit' (texte ou images modifiés) ou 'organize' (pages) : enregistrement de la
 	// visionneuse ; `baseRevision` :
 	// révision ouverte au début des modifications (409 si ce n'est plus la
 	// courante, avec data.currentRevision).
@@ -125,6 +132,12 @@ export const bookmarksAPI = {
 		}),
 	remove: ({ id, page }) =>
 		request(`${documentPath(id)}/bookmarks/${page}`, { method: 'DELETE' }),
+	// Pages réorganisées : `pageMap[ancienne place] = nouvelle place | -1`.
+	remap: ({ id, pageMap }) =>
+		request(`${documentPath(id)}/bookmarks/remap`, {
+			method: 'POST',
+			body: { pageMap },
+		}),
 };
 
 const collectionPath = (id) => `/v1/collections/${encodeURIComponent(id)}`;

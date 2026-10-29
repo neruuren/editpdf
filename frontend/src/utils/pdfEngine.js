@@ -24,8 +24,12 @@ function getWorker() {
 		}
 		pending.delete(id);
 		if (error) {
+			// Le nom est gardé : PasswordRequiredError (pages insérées d'un
+			// PDF protégé) demande un mot de passe.
 			request.reject(
-				error.name === 'AbortError' ? abortError() : new Error(error.message),
+				error.name === 'AbortError'
+					? abortError()
+					: Object.assign(new Error(error.message), { name: error.name }),
 			);
 		} else {
 			request.resolve(result);
@@ -127,6 +131,21 @@ function _pdf(documentId, info) {
 				{ documentId, index, point, data },
 				{ transfer: [data.buffer] },
 			),
+		// Organisation des pages : le résultat porte aussi `layout` (pages,
+		// sommaire, nombre de pages).
+		movePages: (order) => call('movePages', { documentId, order }),
+		rotatePages: (indexes, quarterTurns) =>
+			call('rotatePages', { documentId, indexes, quarterTurns }),
+		deletePages: (indexes) => call('deletePages', { documentId, indexes }),
+		duplicatePages: (indexes) =>
+			call('duplicatePages', { documentId, indexes }),
+		insertBlankPage: (at) => call('insertBlankPage', { documentId, at }),
+		// `data` (Uint8Array) est copié : le fichier reste utilisable (un
+		// mot de passe demandé, on recommence).
+		insertPages: (at, data, { password } = {}) =>
+			call('insertPages', { documentId, at, data, password }),
+		extractPages: (indexes, { title } = {}) =>
+			call('extractPages', { documentId, indexes, title }),
 		undo: () => call('history', { documentId, direction: -1 }),
 		redo: () => call('history', { documentId, direction: 1 }),
 		save: () => call('save', { documentId }),
@@ -178,9 +197,17 @@ function _pdf(documentId, info) {
 //   { target, rect }), replaceImage(index, { target, data }), addImage(index,
 //   { point, data }) (data : PNG ou JPEG, Uint8Array transféré ; + rect) →
 //   { page, canUndo, canRedo, isDirty } ;
+// - pages (workers/pdfPages.js) : movePages(order), rotatePages(indexes,
+//   quarterTurns), deletePages(indexes), duplicatePages(indexes),
+//   insertBlankPage(at), insertPages(at, data, { password }) (+ count ;
+//   PDF protégé : erreur nommée PasswordRequiredError) → { layout:
+//   { pageCount, pages, outline }, page: null, canUndo, canRedo, isDirty } ;
+//   extractPages(indexes, { title }) → Uint8Array (nouveau PDF) ;
 // - save() → { data (Uint8Array : le PDF modifié, en incrémental, ou réécrit
-//   en entier si le texte ou les images ont changé), origin ('annotate' |
-//   'edit') } ;
+//   en entier si le texte, les images ou les pages ont changé), origin
+//   ('annotate' | 'edit' | 'organize'), pageMap (pages réorganisées : pour
+//   chaque page de départ, sa nouvelle place ou -1) } ;
+// - undo(), redo() : + layout quand toutes les pages ont pu changer ;
 // - unlock(password) → document déverrouillé | null ;
 // - close() : libère le document dans le worker (déverrouillé ou non).
 export async function openPdf(data) {
